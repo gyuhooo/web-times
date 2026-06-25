@@ -226,6 +226,15 @@
       </div>
     </div>
 
+    <div class="field" id="decimalsField" style="display:none;">
+      <label>小数点以下の桁数</label>
+      <select id="decimals">
+        <option value="1">1桁 (0.1秒)</option>
+        <option value="2">2桁 (0.01秒)</option>
+        <option value="3">3桁 (ミリ秒)</option>
+      </select>
+    </div>
+
     <div class="checkbox">
       <input type="checkbox" id="hour24" checked />
       <label for="hour24">24時間表示</label>
@@ -330,8 +339,9 @@
   };
 
   var DEFAULTS = {
-    format: "HMS",
+    format: "HMSms",
     fps: 30,
+    decimals: 2,
     hour24: true,
     showDate: false,
     color: "#ffffff",
@@ -419,8 +429,10 @@
     if (state.format === "HM") {
       main = pad(h) + ":" + pad(m);
     } else if (state.format === "HMSms") {
+      var digits = state.decimals || 2;
+      var frac = pad(ms, 3).slice(0, digits);
       main = pad(h) + ":" + pad(m) + ":" + pad(sec) +
-        '<span class="ms">.' + pad(ms, 3) + "</span>";
+        '<span class="ms">.' + frac + "</span>";
     } else if (state.format === "HMSf") {
       var fps = state.fps || 30;
       var frame = Math.floor(ms / (1000 / fps));
@@ -455,6 +467,7 @@
   function syncControlsFromState() {
     $("format").value = state.format;
     $("fps").value = state.fps;
+    $("decimals").value = state.decimals;
     $("hour24").checked = state.hour24;
     $("showDate").checked = state.showDate;
     $("color").value = state.color;
@@ -474,6 +487,7 @@
     $("checker").checked = state.checker;
 
     $("fpsRow").style.display = state.format === "HMSf" ? "" : "none";
+    $("decimalsField").style.display = state.format === "HMSms" ? "" : "none";
     $("shadowField").style.display = state.shadowOn ? "" : "none";
     $("bgColorField").style.display = state.bgMode === "solid" ? "" : "none";
   }
@@ -497,8 +511,10 @@
 
   bind("format", "format", { onChange: function () {
     $("fpsRow").style.display = state.format === "HMSf" ? "" : "none";
+    $("decimalsField").style.display = state.format === "HMSms" ? "" : "none";
   }});
   bind("fps", "fps");
+  bind("decimals", "decimals");
   bind("hour24", "hour24");
   bind("showDate", "showDate");
   bind("color", "color");
