@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Timecode Display</title>
+<style>
+  :root {
+    --tc-color: #ffffff;
+    --tc-bg: rgba(0, 0, 0, 0);
+    --tc-size: 12vw;
+    --tc-font: 'Courier New', monospace;
+    --tc-weight: 700;
+    --tc-shadow: 0 0 0 rgba(0,0,0,0);
+    --tc-letter: 0.02em;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+    /* チェッカー柄: 透過確認用。OBS側では実際に透明になる */
+    background:
+      var(--tc-bg);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  body.show-checker {
+    background-color: #2b2b2b;
+    background-image:
+      linear-gradient(45deg, #3a3a3a 25%, transparent 25%),
+      linear-gradient(-45deg, #3a3a3a 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #3a3a3a 75%),
+      linear-gradient(-45deg, transparent 75%, #3a3a3a 75%);
+    background-size: 32px 32px;
+    background-position: 0 0, 0 16px, 16px -16px, -16px 0;
+  }
+
+  #stage {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+  }
+
+  #clock {
+    color: var(--tc-color);
+    font-family: var(--tc-font);
+    font-size: var(--tc-size);
+    font-weight: var(--tc-weight);
+    letter-spacing: var(--tc-letter);
+    line-height: 1;
+    text-align: center;
+    text-shadow: var(--tc-shadow);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  #clock .frames,
+  #clock .ms {
+    opacity: 0.75;
+    font-size: 0.6em;
+    vertical-align: baseline;
+  }
+
+  #clock .date {
+    display: block;
+    font-size: 0.32em;
+    opacity: 0.85;
+    margin-bottom: 0.15em;
+    letter-spacing: 0.05em;
+  }
+
+  /* ---------- 設定パネル ---------- */
+  #panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    height: 100%;
+    width: 340px;
+    max-width: 90vw;
+    background: rgba(20, 22, 26, 0.96);
+    color: #e8e8e8;
+    box-shadow: -4px 0 24px rgba(0, 0, 0, 0.5);
+    transform: translateX(100%);
+    transition: transform 0.25s ease;
+    z-index: 10;
+    overflow-y: auto;
+    padding: 18px 20px 60px;
+    font-size: 14px;
+  }
+  #panel.open { transform: translateX(0); }
+
+  #panel h1 {
+    font-size: 16px;
+    margin: 0 0 4px;
+    font-weight: 600;
+  }
+  #panel .hint {
+    font-size: 12px;
+    color: #9aa0a6;
+    margin: 0 0 16px;
+  }
+
+  .field { margin-bottom: 16px; }
+  .field label {
+    display: block;
+    margin-bottom: 6px;
+    color: #c4c8cc;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .field input[type="text"],
+  .field select,
+  .field input[type="number"] {
+    width: 100%;
+    padding: 7px 9px;
+    background: #2a2d33;
+    border: 1px solid #3a3f47;
+    border-radius: 6px;
+    color: #f0f0f0;
+    font-size: 14px;
+  }
+  .field input[type="color"] {
+    width: 100%;
+    height: 38px;
+    padding: 2px;
+    background: #2a2d33;
+    border: 1px solid #3a3f47;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .field input[type="range"] { width: 100%; }
+
+  .row { display: flex; gap: 10px; }
+  .row > .field { flex: 1; }
+
+  .checkbox {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    margin-bottom: 10px;
+  }
+  .checkbox input { width: 16px; height: 16px; }
+  .checkbox label { margin: 0; text-transform: none; letter-spacing: 0; font-size: 14px; color: #e8e8e8; }
+
+  .val { float: right; color: #9aa0a6; font-weight: 400; }
+
+  .btn-row { display: flex; gap: 8px; margin-top: 8px; }
+  button.action {
+    flex: 1;
+    padding: 9px;
+    border: 1px solid #3a3f47;
+    border-radius: 6px;
+    background: #2f333a;
+    color: #f0f0f0;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  button.action:hover { background: #3a3f47; }
+
+  /* 歯車ボタン */
+  #gear {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(20, 22, 26, 0.55);
+    color: #fff;
+    font-size: 18px;
+    cursor: pointer;
+    z-index: 11;
+    opacity: 0;
+    transition: opacity 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  body:hover #gear { opacity: 0.85; }
+  #gear:hover { opacity: 1 !important; }
+  #panel.open ~ #gear { opacity: 1; }
+
+  .swatches { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .swatch {
+    width: 24px; height: 24px; border-radius: 4px;
+    border: 1px solid rgba(255,255,255,0.2); cursor: pointer;
+  }
+</style>
+</head>
+<body>
+  <div id="stage">
+    <div id="clock">00:00:00</div>
+  </div>
+
+  <button id="gear" title="設定 (S キー)">⚙</button>
+
+  <div id="panel">
+    <h1>タイムコード設定</h1>
+    <p class="hint">設定はこのブラウザに保存されます。OBSにはこのパネルは映りません（S キーで開閉）。</p>
+
+    <div class="field">
+      <label>表示形式</label>
+      <select id="format">
+        <option value="HMS">時:分:秒 (HH:MM:SS)</option>
+        <option value="HMSms">時:分:秒.ミリ秒</option>
+        <option value="HMSf">時:分:秒:フレーム (タイムコード)</option>
+        <option value="HM">時:分 (HH:MM)</option>
+      </select>
+    </div>
+
+    <div class="row" id="fpsRow" style="display:none;">
+      <div class="field">
+        <label>フレームレート (fps)</label>
+        <input type="number" id="fps" min="1" max="120" step="1" value="30" />
+      </div>
+    </div>
+
+    <div class="checkbox">
+      <input type="checkbox" id="hour24" checked />
+      <label for="hour24">24時間表示</label>
+    </div>
+    <div class="checkbox">
+      <input type="checkbox" id="showDate" />
+      <label for="showDate">日付も表示</label>
+    </div>
+
+    <div class="field">
+      <label>文字色</label>
+      <input type="color" id="color" value="#ffffff" />
+      <div class="swatches">
+        <span class="swatch" data-c="#ffffff" style="background:#ffffff"></span>
+        <span class="swatch" data-c="#000000" style="background:#000000"></span>
+        <span class="swatch" data-c="#00ff66" style="background:#00ff66"></span>
+        <span class="swatch" data-c="#ff3366" style="background:#ff3366"></span>
+        <span class="swatch" data-c="#33aaff" style="background:#33aaff"></span>
+        <span class="swatch" data-c="#ffcc00" style="background:#ffcc00"></span>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>文字サイズ <span class="val" id="sizeVal">12</span></label>
+      <input type="range" id="size" min="2" max="40" step="0.5" value="12" />
+    </div>
+
+    <div class="field">
+      <label>フォント</label>
+      <select id="font">
+        <option value="'Courier New', monospace">Courier (等幅)</option>
+        <option value="'Consolas', monospace">Consolas</option>
+        <option value="'SF Mono', ui-monospace, monospace">SF Mono</option>
+        <option value="-apple-system, 'Segoe UI', Roboto, sans-serif">System Sans</option>
+        <option value="'Arial Black', sans-serif">Arial Black</option>
+        <option value="Georgia, serif">Georgia</option>
+        <option value="'Impact', sans-serif">Impact</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>太さ <span class="val" id="weightVal">700</span></label>
+      <input type="range" id="weight" min="100" max="900" step="100" value="700" />
+    </div>
+
+    <div class="field">
+      <label>文字間隔 <span class="val" id="letterVal">0.02</span></label>
+      <input type="range" id="letter" min="-0.05" max="0.4" step="0.01" value="0.02" />
+    </div>
+
+    <div class="checkbox">
+      <input type="checkbox" id="shadowOn" />
+      <label for="shadowOn">縁取り / 影をつける</label>
+    </div>
+    <div class="field" id="shadowField" style="display:none;">
+      <label>影の色</label>
+      <input type="color" id="shadowColor" value="#000000" />
+      <label style="margin-top:8px;">ぼかし / 太さ <span class="val" id="shadowSizeVal">4</span></label>
+      <input type="range" id="shadowSize" min="0" max="20" step="1" value="4" />
+    </div>
+
+    <div class="field">
+      <label>背景</label>
+      <select id="bgMode">
+        <option value="transparent">透過 (OBS用)</option>
+        <option value="solid">単色</option>
+      </select>
+    </div>
+    <div class="field" id="bgColorField" style="display:none;">
+      <label>背景色</label>
+      <input type="color" id="bgColor" value="#000000" />
+    </div>
+
+    <div class="checkbox">
+      <input type="checkbox" id="checker" />
+      <label for="checker">透過確認用の市松模様を表示（編集中のみ）</label>
+    </div>
+
+    <div class="btn-row">
+      <button class="action" id="copyUrl">設定付きURLをコピー</button>
+      <button class="action" id="reset">リセット</button>
+    </div>
+    <p class="hint" style="margin-top:14px;">
+      OBS → ソース → ブラウザ → このページのURLを指定。「カスタムCSS」は空でOK。透過はそのまま反映されます。
+    </p>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+
+  var clock = document.getElementById("clock");
+  var panel = document.getElementById("panel");
+  var gear = document.getElementById("gear");
+  var root = document.documentElement;
+  var body = document.body;
+
+  var pad = function (n, w) {
+    n = String(Math.floor(n));
+    while (n.length < (w || 2)) n = "0" + n;
+    return n;
+  };
+
+  var DEFAULTS = {
+    format: "HMS",
+    fps: 30,
+    hour24: true,
+    showDate: false,
+    color: "#ffffff",
+    size: 12,
+    font: "'Courier New', monospace",
+    weight: 700,
+    letter: 0.02,
+    shadowOn: false,
+    shadowColor: "#000000",
+    shadowSize: 4,
+    bgMode: "transparent",
+    bgColor: "#000000",
+    checker: false
+  };
+
+  var state = {};
+
+  // ---- 設定の読み込み: URLパラメータ > localStorage > デフォルト ----
+  function load() {
+    var saved = {};
+    try { saved = JSON.parse(localStorage.getItem("timecodeSettings") || "{}"); } catch (e) {}
+    var params = new URLSearchParams(location.search);
+    Object.keys(DEFAULTS).forEach(function (k) {
+      var v = DEFAULTS[k];
+      if (k in saved) v = saved[k];
+      if (params.has(k)) {
+        var p = params.get(k);
+        if (typeof DEFAULTS[k] === "boolean") v = (p === "1" || p === "true");
+        else if (typeof DEFAULTS[k] === "number") v = parseFloat(p);
+        else v = p;
+      }
+      state[k] = v;
+    });
+  }
+
+  function save() {
+    try { localStorage.setItem("timecodeSettings", JSON.stringify(state)); } catch (e) {}
+  }
+
+  // ---- スタイル適用 ----
+  function applyStyles() {
+    root.style.setProperty("--tc-color", state.color);
+    root.style.setProperty("--tc-size", state.size + "vw");
+    root.style.setProperty("--tc-font", state.font);
+    root.style.setProperty("--tc-weight", state.weight);
+    root.style.setProperty("--tc-letter", state.letter + "em");
+
+    if (state.shadowOn) {
+      var s = state.shadowSize;
+      // 縁取り風: 影色で四方 + ぼかし
+      root.style.setProperty("--tc-shadow",
+        "0 0 " + s + "px " + state.shadowColor + ", " +
+        "0 0 " + Math.max(1, s / 2) + "px " + state.shadowColor);
+    } else {
+      root.style.setProperty("--tc-shadow", "0 0 0 rgba(0,0,0,0)");
+    }
+
+    if (state.bgMode === "solid") {
+      root.style.setProperty("--tc-bg", state.bgColor);
+    } else {
+      root.style.setProperty("--tc-bg", "rgba(0,0,0,0)");
+    }
+
+    body.classList.toggle("show-checker", state.checker && state.bgMode === "transparent");
+  }
+
+  // ---- 時計の描画 ----
+  function render() {
+    var now = new Date();
+    var h = now.getHours();
+    var m = now.getMinutes();
+    var sec = now.getSeconds();
+    var ms = now.getMilliseconds();
+
+    var ampm = "";
+    if (!state.hour24) {
+      ampm = h < 12 ? " AM" : " PM";
+      h = h % 12;
+      if (h === 0) h = 12;
+    }
+
+    var main = "";
+    var sub = "";
+
+    if (state.format === "HM") {
+      main = pad(h) + ":" + pad(m);
+    } else if (state.format === "HMSms") {
+      main = pad(h) + ":" + pad(m) + ":" + pad(sec) +
+        '<span class="ms">.' + pad(ms, 3) + "</span>";
+    } else if (state.format === "HMSf") {
+      var fps = state.fps || 30;
+      var frame = Math.floor(ms / (1000 / fps));
+      main = pad(h) + ":" + pad(m) + ":" + pad(sec) +
+        '<span class="frames">:' + pad(frame) + "</span>";
+    } else {
+      main = pad(h) + ":" + pad(m) + ":" + pad(sec);
+    }
+
+    main += ampm;
+
+    var html = "";
+    if (state.showDate) {
+      var days = ["日", "月", "火", "水", "木", "金", "土"];
+      sub = now.getFullYear() + "-" + pad(now.getMonth() + 1) + "-" + pad(now.getDate()) +
+        " (" + days[now.getDay()] + ")";
+      html += '<span class="date">' + sub + "</span>";
+    }
+    html += main;
+    clock.innerHTML = html;
+  }
+
+  // ---- 高頻度更新ループ ----
+  function tick() {
+    render();
+    requestAnimationFrame(tick);
+  }
+
+  // ---- パネルとコントロールの同期 ----
+  function $(id) { return document.getElementById(id); }
+
+  function syncControlsFromState() {
+    $("format").value = state.format;
+    $("fps").value = state.fps;
+    $("hour24").checked = state.hour24;
+    $("showDate").checked = state.showDate;
+    $("color").value = state.color;
+    $("size").value = state.size;
+    $("sizeVal").textContent = state.size;
+    $("font").value = state.font;
+    $("weight").value = state.weight;
+    $("weightVal").textContent = state.weight;
+    $("letter").value = state.letter;
+    $("letterVal").textContent = state.letter;
+    $("shadowOn").checked = state.shadowOn;
+    $("shadowColor").value = state.shadowColor;
+    $("shadowSize").value = state.shadowSize;
+    $("shadowSizeVal").textContent = state.shadowSize;
+    $("bgMode").value = state.bgMode;
+    $("bgColor").value = state.bgColor;
+    $("checker").checked = state.checker;
+
+    $("fpsRow").style.display = state.format === "HMSf" ? "" : "none";
+    $("shadowField").style.display = state.shadowOn ? "" : "none";
+    $("bgColorField").style.display = state.bgMode === "solid" ? "" : "none";
+  }
+
+  function bind(id, key, opts) {
+    opts = opts || {};
+    var el = $(id);
+    var evt = opts.event || "input";
+    el.addEventListener(evt, function () {
+      var v;
+      if (el.type === "checkbox") v = el.checked;
+      else if (typeof DEFAULTS[key] === "number") v = parseFloat(el.value);
+      else v = el.value;
+      state[key] = v;
+      if (opts.valLabel) $(opts.valLabel).textContent = v;
+      if (opts.onChange) opts.onChange();
+      applyStyles();
+      save();
+    });
+  }
+
+  bind("format", "format", { onChange: function () {
+    $("fpsRow").style.display = state.format === "HMSf" ? "" : "none";
+  }});
+  bind("fps", "fps");
+  bind("hour24", "hour24");
+  bind("showDate", "showDate");
+  bind("color", "color");
+  bind("size", "size", { valLabel: "sizeVal" });
+  bind("font", "font");
+  bind("weight", "weight", { valLabel: "weightVal" });
+  bind("letter", "letter", { valLabel: "letterVal" });
+  bind("shadowOn", "shadowOn", { onChange: function () {
+    $("shadowField").style.display = state.shadowOn ? "" : "none";
+  }});
+  bind("shadowColor", "shadowColor");
+  bind("shadowSize", "shadowSize", { valLabel: "shadowSizeVal" });
+  bind("bgMode", "bgMode", { onChange: function () {
+    $("bgColorField").style.display = state.bgMode === "solid" ? "" : "none";
+  }});
+  bind("bgColor", "bgColor");
+  bind("checker", "checker");
+
+  // スウォッチ
+  Array.prototype.forEach.call(document.querySelectorAll(".swatch"), function (sw) {
+    sw.addEventListener("click", function () {
+      state.color = sw.getAttribute("data-c");
+      $("color").value = state.color;
+      applyStyles();
+      save();
+    });
+  });
+
+  // パネル開閉
+  function togglePanel() { panel.classList.toggle("open"); }
+  gear.addEventListener("click", togglePanel);
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "s" || e.key === "S") {
+      if (document.activeElement && /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) return;
+      togglePanel();
+    }
+    if (e.key === "Escape") panel.classList.remove("open");
+  });
+
+  // URLコピー
+  $("copyUrl").addEventListener("click", function () {
+    var params = new URLSearchParams();
+    Object.keys(DEFAULTS).forEach(function (k) {
+      var v = state[k];
+      if (typeof v === "boolean") v = v ? "1" : "0";
+      params.set(k, v);
+    });
+    var url = location.origin + location.pathname + "?" + params.toString();
+    var btn = $("copyUrl");
+    var done = function () { btn.textContent = "コピーしました ✓"; setTimeout(function(){ btn.textContent = "設定付きURLをコピー"; }, 1500); };
+    if (navigator.clipboard) navigator.clipboard.writeText(url).then(done, function(){ prompt("URL", url); });
+    else prompt("URL", url);
+  });
+
+  // リセット
+  $("reset").addEventListener("click", function () {
+    state = JSON.parse(JSON.stringify(DEFAULTS));
+    syncControlsFromState();
+    applyStyles();
+    save();
+  });
+
+  // ---- 起動 ----
+  load();
+  syncControlsFromState();
+  applyStyles();
+  tick();
+})();
+</script>
+</body>
+</html>
