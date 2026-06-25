@@ -7,12 +7,12 @@ OBSのブラウザソースに重ねて使えます。
 ## 使い方
 
 ### ローカルで開く
-`index.html` をブラウザで開くだけです。
+`public/index.html` をブラウザで開くだけです。
 
 ### OBSで使う
 1. ソース → **ブラウザ** を追加
-2. **ローカルファイル** にチェックを入れ、`index.html` を指定
-   （もしくはGitHub Pages等で公開したURLを指定）
+2. **ローカルファイル** にチェックを入れ、`public/index.html` を指定
+   （もしくはCloudflare Pages等で公開したURLを指定）
 3. 幅・高さを配信解像度に合わせる（例: 1920 × 1080）
 4. 背景設定が「透過」になっていれば、そのまま透けて合成されます
 
@@ -40,3 +40,28 @@ OBSのブラウザソースに重ねて使えます。
 指定すれば、シーンごとに色やサイズを変えられます。
 
 例: `index.html?format=HMSf&color=%2300ff66&size=14&shadowOn=1`
+
+## Cloudflare Pages へのデプロイ
+
+静的サイトなのでビルド不要です。配信ディレクトリは `public/` です。
+
+### A. CLIで直接デプロイ（最速）
+[APIトークン](https://dash.cloudflare.com/profile/api-tokens)（**Cloudflare Pages: Edit** 権限）と
+アカウントIDを用意して、次を実行します。
+
+```bash
+export CLOUDFLARE_API_TOKEN=xxxxxxxx
+export CLOUDFLARE_ACCOUNT_ID=xxxxxxxx
+npx wrangler pages deploy public --project-name=web-times
+```
+
+### B. GitHub Actionsで自動デプロイ
+`.github/workflows/deploy.yml` を同梱しています。GitHubリポジトリの
+**Settings → Secrets and variables → Actions** に以下を登録すると、push時に自動デプロイされます。
+- `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_ACCOUNT_ID`
+
+### C. ダッシュボードでGit連携
+Cloudflareダッシュボード → **Workers & Pages → Create → Pages → Connect to Git** で
+このリポジトリを選択。ビルドコマンドは空、**ビルド出力ディレクトリ**を `public` に設定します。
+（トークンを共有せずに済む方法です）
