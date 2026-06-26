@@ -13,6 +13,10 @@
     --tc-weight: 700;
     --tc-shadow: 0 0 0 rgba(0,0,0,0);
     --tc-letter: 0.02em;
+    --tc-opacity: 1;
+    --tc-panel-bg: transparent;
+    --tc-panel-pad: 0;
+    --tc-panel-radius: 0;
   }
 
   * { box-sizing: border-box; }
@@ -23,9 +27,7 @@
     height: 100%;
     width: 100%;
     overflow: hidden;
-    /* チェッカー柄: 透過確認用。OBS側では実際に透明になる */
-    background:
-      var(--tc-bg);
+    background: var(--tc-bg);
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   }
 
@@ -46,8 +48,15 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    padding: 3vmin;
     user-select: none;
   }
+  #stage.v-top    { align-items: flex-start; }
+  #stage.v-center { align-items: center; }
+  #stage.v-bottom { align-items: flex-end; }
+  #stage.h-left   { justify-content: flex-start; }
+  #stage.h-center { justify-content: center; }
+  #stage.h-right  { justify-content: flex-end; }
 
   #clock {
     color: var(--tc-color);
@@ -60,6 +69,10 @@
     text-shadow: var(--tc-shadow);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
+    opacity: var(--tc-opacity);
+    background: var(--tc-panel-bg);
+    padding: var(--tc-panel-pad);
+    border-radius: var(--tc-panel-radius);
   }
 
   #clock .frames,
@@ -69,13 +82,22 @@
     vertical-align: baseline;
   }
 
-  #clock .date {
+  #clock .date,
+  #clock .cd-title {
     display: block;
     font-size: 0.32em;
     opacity: 0.85;
     margin-bottom: 0.15em;
     letter-spacing: 0.05em;
   }
+
+  /* コロン点滅: 有効時のみ、毎秒トグルされる .blink-off で : を消す */
+  #clock .sep { transition: opacity 0.06s linear; }
+  body.blink-on #clock.blink-off .sep { opacity: 0; }
+
+  /* タイマー終了時のフラッシュ */
+  #clock.finished-flash { animation: tc-flash 0.7s steps(1) infinite; }
+  @keyframes tc-flash { 50% { opacity: 0.12; } }
 
   /* ---------- 設定パネル ---------- */
   #panel {
@@ -112,6 +134,11 @@
     color: #9aa0a6;
     margin: 0 0 16px;
   }
+  #panel hr {
+    border: none;
+    border-top: 1px solid #2f333a;
+    margin: 18px 0;
+  }
 
   .field { margin-bottom: 16px; }
   .field label {
@@ -123,6 +150,7 @@
     letter-spacing: 0.04em;
   }
   .field input[type="text"],
+  .field input[type="datetime-local"],
   .field select,
   .field input[type="number"] {
     width: 100%;
@@ -159,7 +187,7 @@
 
   .val { float: right; color: #9aa0a6; font-weight: 400; }
 
-  .btn-row { display: flex; gap: 8px; margin-top: 8px; }
+  .btn-row { display: flex; gap: 8px; margin-top: 8px; margin-bottom: 8px; }
   button.action {
     flex: 1;
     padding: 9px;
@@ -171,6 +199,25 @@
     font-size: 13px;
   }
   button.action:hover { background: #3a3f47; }
+
+  .lap-list {
+    max-height: 150px;
+    overflow-y: auto;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    margin-top: 6px;
+  }
+  .lap-list .lap {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 3px 6px;
+    border-bottom: 1px solid #2a2d33;
+    color: #d0d4d8;
+  }
+  .lap-list .lap .lap-n { color: #9aa0a6; }
+
+  #syncStatus { margin: 0 0 8px; }
 
   /* 歯車ボタン */
   #gear {
@@ -211,44 +258,136 @@
   <button id="gear" title="設定 (S キー)">⚙</button>
 
   <div id="panel">
-    <h1>タイムコード設定</h1>
+    <h1>時計 / タイムコード</h1>
     <p class="hint">設定はこのブラウザに保存されます。OBSにはこのパネルは映りません（S キーで開閉）。</p>
 
+    <!-- ===== モード ===== -->
     <div class="field">
-      <label>表示形式</label>
-      <select id="format">
-        <option value="HMS">時:分:秒 (HH:MM:SS)</option>
-        <option value="HMSms">時:分:秒.ミリ秒</option>
-        <option value="HMSf">時:分:秒:フレーム (タイムコード)</option>
-        <option value="HM">時:分 (HH:MM)</option>
+      <label>モード</label>
+      <select id="mode">
+        <option value="clock">時計</option>
+        <option value="timer">タイマー（カウントダウン）</option>
+        <option value="stopwatch">ストップウォッチ</option>
+        <option value="countdown">イベントまでの残り時間</option>
       </select>
     </div>
 
-    <div class="row" id="fpsRow" style="display:none;">
+    <!-- ===== 時計モード ===== -->
+    <div id="clockFields">
       <div class="field">
-        <label>フレームレート (fps)</label>
-        <input type="number" id="fps" min="1" max="120" step="1" value="30" />
+        <label>表示形式</label>
+        <select id="format">
+          <option value="HMS">時:分:秒 (HH:MM:SS)</option>
+          <option value="HMSms">時:分:秒.小数</option>
+          <option value="HMSf">時:分:秒:フレーム (タイムコード)</option>
+          <option value="HM">時:分 (HH:MM)</option>
+        </select>
+      </div>
+
+      <div class="row" id="fpsRow" style="display:none;">
+        <div class="field">
+          <label>フレームレート (fps)</label>
+          <input type="number" id="fps" min="1" max="120" step="1" value="30" />
+        </div>
+      </div>
+
+      <div class="field" id="decimalsField" style="display:none;">
+        <label>小数点以下の桁数</label>
+        <select id="decimals">
+          <option value="1">1桁 (0.1秒)</option>
+          <option value="2">2桁 (0.01秒)</option>
+          <option value="3">3桁 (ミリ秒)</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>タイムゾーン</label>
+        <select id="tz">
+          <option value="auto">ローカル (自動)</option>
+          <option value="UTC">UTC</option>
+          <option value="Asia/Tokyo">東京 (Asia/Tokyo)</option>
+          <option value="Asia/Shanghai">上海 (Asia/Shanghai)</option>
+          <option value="Asia/Kolkata">インド (Asia/Kolkata)</option>
+          <option value="Europe/London">ロンドン (Europe/London)</option>
+          <option value="Europe/Paris">パリ (Europe/Paris)</option>
+          <option value="America/New_York">NY (America/New_York)</option>
+          <option value="America/Chicago">シカゴ (America/Chicago)</option>
+          <option value="America/Los_Angeles">LA (America/Los_Angeles)</option>
+          <option value="Australia/Sydney">シドニー (Australia/Sydney)</option>
+        </select>
+      </div>
+
+      <div class="checkbox">
+        <input type="checkbox" id="hour24" checked />
+        <label for="hour24">24時間表示</label>
+      </div>
+      <div class="checkbox">
+        <input type="checkbox" id="padHour" checked />
+        <label for="padHour">時の先頭に0をつける (09:05)</label>
+      </div>
+      <div class="checkbox">
+        <input type="checkbox" id="showDate" />
+        <label for="showDate">日付も表示</label>
+      </div>
+      <div class="field" id="dateFormatField" style="display:none;">
+        <label>日付の形式</label>
+        <select id="dateFormat">
+          <option value="iso">2026-06-26 (金)</option>
+          <option value="mdslash">06/26</option>
+          <option value="jp">6月26日(金)</option>
+          <option value="jplong">2026年6月26日</option>
+          <option value="enshort">Fri, Jun 26</option>
+        </select>
       </div>
     </div>
 
-    <div class="field" id="decimalsField" style="display:none;">
-      <label>小数点以下の桁数</label>
-      <select id="decimals">
-        <option value="1">1桁 (0.1秒)</option>
-        <option value="2">2桁 (0.01秒)</option>
-        <option value="3">3桁 (ミリ秒)</option>
-      </select>
+    <!-- ===== タイマー ===== -->
+    <div id="timerFields" style="display:none;">
+      <div class="row">
+        <div class="field"><label>時</label><input type="number" id="timerH" min="0" max="99" step="1" value="0" /></div>
+        <div class="field"><label>分</label><input type="number" id="timerM" min="0" max="59" step="1" value="5" /></div>
+        <div class="field"><label>秒</label><input type="number" id="timerS" min="0" max="59" step="1" value="0" /></div>
+      </div>
+      <div class="btn-row">
+        <button class="action" id="timerStart">開始</button>
+        <button class="action" id="timerPause">一時停止</button>
+        <button class="action" id="timerReset">リセット</button>
+      </div>
+      <div class="checkbox"><input type="checkbox" id="timerShowMs" /><label for="timerShowMs">ミリ秒を表示</label></div>
+      <div class="checkbox"><input type="checkbox" id="timerFinishFlash" checked /><label for="timerFinishFlash">終了時に点滅</label></div>
+      <div class="checkbox"><input type="checkbox" id="timerBeep" /><label for="timerBeep">終了時にビープ音（要クリック許可）</label></div>
+      <div class="field"><label>終了色</label><input type="color" id="timerFinishColor" value="#ff3366" /></div>
+      <div class="field"><label>終了メッセージ（空欄で非表示）</label><input type="text" id="timerFinishLabel" value="TIME!" /></div>
+      <p class="hint">ショートカット（パネルを閉じた状態）: Space=開始/一時停止, R=リセット</p>
     </div>
 
-    <div class="checkbox">
-      <input type="checkbox" id="hour24" checked />
-      <label for="hour24">24時間表示</label>
-    </div>
-    <div class="checkbox">
-      <input type="checkbox" id="showDate" />
-      <label for="showDate">日付も表示</label>
+    <!-- ===== ストップウォッチ ===== -->
+    <div id="swFields" style="display:none;">
+      <div class="btn-row">
+        <button class="action" id="swStart">開始</button>
+        <button class="action" id="swPause">一時停止</button>
+        <button class="action" id="swReset">リセット</button>
+      </div>
+      <div class="btn-row"><button class="action" id="swLap">ラップ</button></div>
+      <div class="checkbox"><input type="checkbox" id="swShowMs" checked /><label for="swShowMs">ミリ秒を表示</label></div>
+      <div class="field">
+        <label>ラップ <span class="val" id="swLapCount">0</span></label>
+        <div id="swLapList" class="lap-list"></div>
+      </div>
+      <p class="hint">ショートカット（パネルを閉じた状態）: Space=開始/一時停止, L=ラップ, R=リセット</p>
     </div>
 
+    <!-- ===== イベントカウントダウン ===== -->
+    <div id="cdFields" style="display:none;">
+      <div class="field"><label>目標日時</label><input type="datetime-local" id="target" /></div>
+      <div class="field"><label>タイトル（上に表示）</label><input type="text" id="cdTitle" placeholder="例: 配信開始まで" /></div>
+      <div class="field"><label>到達時のメッセージ（空ならタイトル）</label><input type="text" id="cdDone" placeholder="例: START!" /></div>
+      <div class="checkbox"><input type="checkbox" id="cdDropDays" checked /><label for="cdDropDays">残り0日のとき「日」を隠す</label></div>
+    </div>
+
+    <hr />
+
+    <!-- ===== 見た目（全モード共通） ===== -->
     <div class="field">
       <label>文字色</label>
       <input type="color" id="color" value="#ffffff" />
@@ -290,6 +429,27 @@
       <input type="range" id="letter" min="-0.05" max="0.4" step="0.01" value="0.02" />
     </div>
 
+    <div class="field">
+      <label>文字の透明度 <span class="val" id="opacityVal">1</span></label>
+      <input type="range" id="opacity" min="0.1" max="1" step="0.05" value="1" />
+    </div>
+
+    <div class="checkbox">
+      <input type="checkbox" id="blink" />
+      <label for="blink">「:」を1秒ごとに点滅</label>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label>縦位置</label>
+        <select id="alignV"><option value="top">上</option><option value="center">中央</option><option value="bottom">下</option></select>
+      </div>
+      <div class="field">
+        <label>横位置</label>
+        <select id="alignH"><option value="left">左</option><option value="center">中央</option><option value="right">右</option></select>
+      </div>
+    </div>
+
     <div class="checkbox">
       <input type="checkbox" id="shadowOn" />
       <label for="shadowOn">縁取り / 影をつける</label>
@@ -314,8 +474,27 @@
     </div>
 
     <div class="checkbox">
+      <input type="checkbox" id="panelOn" />
+      <label for="panelOn">文字の背後に半透明パネル（視認性UP）</label>
+    </div>
+    <div class="field" id="panelBgField" style="display:none;">
+      <label>パネル色</label>
+      <input type="color" id="panelColor" value="#000000" />
+      <label style="margin-top:8px;">パネルの不透明度 <span class="val" id="panelOpacityVal">0.4</span></label>
+      <input type="range" id="panelOpacity" min="0" max="1" step="0.05" value="0.4" />
+    </div>
+
+    <div class="checkbox">
       <input type="checkbox" id="checker" />
       <label for="checker">透過確認用の市松模様を表示（編集中のみ）</label>
+    </div>
+
+    <hr />
+
+    <div class="field">
+      <label>時刻同期</label>
+      <p class="hint" id="syncStatus">同期中…</p>
+      <button class="action" id="resync">今すぐ同期</button>
     </div>
 
     <div class="btn-row">
@@ -328,41 +507,195 @@
   </div>
 
 <script>
+/*!
+ * TimeSync — browser-only, dependency-free HTTP "NTP-like" clock corrector.
+ * SNTP-style midpoint offset estimate; never throws; degrades to local clock.
+ */
+var TimeSync = (function () {
+  "use strict";
+  var offsetMs = 0, rttMs = Infinity, source = "local";
+  var syncedAt = null, synced = false, timer = null, inFlight = null;
+  var updateCbs = [];
+  var MAX_RTT = 2000, FETCH_TIMEOUT = 3500;
+
+  function parseCfTrace(text) {
+    var m = /(?:^|\n)ts=([0-9.]+)/.exec(text);
+    if (!m) return NaN;
+    return Math.round(parseFloat(m[1]) * 1000);
+  }
+
+  var SOURCES = [
+    { name: "cf-trace-same-origin", run: function () {
+        var t0 = Date.now();
+        return fetchText(originPath("/cdn-cgi/trace")).then(function (text) {
+          return { serverMs: parseCfTrace(text), t0: t0, t1: Date.now() };
+        });
+      } },
+    { name: "timeapi.io", run: function () {
+        var t0 = Date.now();
+        return fetchJson("https://timeapi.io/api/time/current/zone?timeZone=Etc/UTC").then(function (j) {
+          var t1 = Date.now();
+          var iso = j && j.dateTime ? String(j.dateTime) : "";
+          if (iso && !/[zZ]|[+\-]\d\d:?\d\d$/.test(iso)) iso += "Z";
+          return { serverMs: Date.parse(iso), t0: t0, t1: t1 };
+        });
+      } },
+    { name: "cf-trace-public", run: function () {
+        var t0 = Date.now();
+        return fetchText("https://cloudflare.com/cdn-cgi/trace").then(function (text) {
+          return { serverMs: parseCfTrace(text), t0: t0, t1: Date.now() };
+        });
+      } },
+    { name: "worldtimeapi.org", run: function () {
+        var t0 = Date.now();
+        return fetchJson("https://worldtimeapi.org/api/ip").then(function (j) {
+          var t1 = Date.now(), serverMs = NaN;
+          if (j && j.utc_datetime) serverMs = Date.parse(j.utc_datetime);
+          if (isNaN(serverMs) && j && typeof j.unixtime === "number") serverMs = j.unixtime * 1000;
+          return { serverMs: serverMs, t0: t0, t1: t1 };
+        });
+      } },
+    { name: "date-header", run: function () {
+        var t0 = Date.now();
+        return fetchResp(originPath(location.href), "HEAD").then(function (resp) {
+          var d = resp.headers.get("date");
+          return { serverMs: d ? Date.parse(d) : NaN, t0: t0, t1: Date.now() };
+        });
+      } }
+  ];
+
+  function originPath(p) {
+    try { if (/^https?:\/\//.test(p)) return p; return location.origin + p; }
+    catch (e) { return p; }
+  }
+  function fetchResp(url, method) {
+    if (typeof fetch !== "function") return Promise.reject(new Error("no fetch"));
+    var ctrl = null, to = null;
+    try { if (typeof AbortController === "function") ctrl = new AbortController(); } catch (e) {}
+    var opts = { method: method || "GET", cache: "no-store" };
+    if (ctrl) opts.signal = ctrl.signal;
+    var p = fetch(url, opts);
+    if (ctrl) {
+      to = setTimeout(function () { try { ctrl.abort(); } catch (e) {} }, FETCH_TIMEOUT);
+      p = p.then(function (r) { clearTimeout(to); return r; },
+                 function (e) { clearTimeout(to); throw e; });
+    }
+    return p;
+  }
+  function fetchText(url) { return fetchResp(url, "GET").then(function (r) { if (!r.ok) throw 0; return r.text(); }); }
+  function fetchJson(url) { return fetchResp(url, "GET").then(function (r) { if (!r.ok) throw 0; return r.json(); }); }
+
+  function evalSample(s) {
+    if (!s || isNaN(s.serverMs) || s.serverMs <= 0) return null;
+    var rtt = s.t1 - s.t0;
+    if (rtt < 0 || rtt > MAX_RTT) return null;
+    return { offset: s.serverMs - (s.t0 + s.t1) / 2, rtt: rtt };
+  }
+  function emit() { var st = status(); for (var i = 0; i < updateCbs.length; i++) { try { updateCbs[i](st); } catch (e) {} } }
+
+  function collectBest() {
+    var best = null, bestName = null;
+    function tryOne(i) {
+      if (i >= SOURCES.length) return Promise.resolve();
+      var src = SOURCES[i], step;
+      try { step = src.run(); } catch (e) { step = Promise.reject(e); }
+      return Promise.resolve(step).then(function (raw) {
+        var ev = evalSample(raw);
+        if (ev && (best === null || ev.rtt < best.rtt)) { best = ev; bestName = src.name; }
+      }, function () {}).then(function () {
+        if (best && best.rtt <= 150 &&
+            (bestName === "cf-trace-same-origin" || bestName === "timeapi.io" || bestName === "cf-trace-public")) return;
+        return tryOne(i + 1);
+      });
+    }
+    return tryOne(0).then(function () { return best ? { ev: best, name: bestName } : null; });
+  }
+
+  function sync() {
+    if (inFlight) return inFlight;
+    inFlight = collectBest().then(function (res) {
+      if (res) { offsetMs = res.ev.offset; rttMs = res.ev.rtt; source = res.name; synced = true; syncedAt = Date.now() + offsetMs; }
+      else if (!synced) { source = "local"; offsetMs = 0; rttMs = Infinity; }
+      inFlight = null; emit(); return status();
+    }, function () { inFlight = null; emit(); return status(); });
+    return inFlight;
+  }
+  function start(intervalMs) {
+    if (timer !== null) return;
+    var iv = (typeof intervalMs === "number" && intervalMs > 0) ? intervalMs : 5 * 60 * 1000;
+    sync();
+    timer = setInterval(function () { sync(); }, iv);
+    try {
+      if (typeof document !== "undefined" && document.addEventListener)
+        document.addEventListener("visibilitychange", function () { if (!document.hidden) sync(); });
+    } catch (e) {}
+  }
+  function nowMs() { return Date.now() + offsetMs; }
+  function getNow() { return new Date(Date.now() + offsetMs); }
+  function status() { return { source: source, offsetMs: offsetMs, rttMs: rttMs, syncedAt: syncedAt, synced: synced }; }
+  function onUpdate(cb) { if (typeof cb === "function") updateCbs.push(cb); }
+
+  return { getNow: getNow, nowMs: nowMs, status: status, sync: sync, start: start, onUpdate: onUpdate };
+})();
+
 (function () {
   "use strict";
 
   var clock = document.getElementById("clock");
   var panel = document.getElementById("panel");
   var gear = document.getElementById("gear");
+  var stage = document.getElementById("stage");
   var root = document.documentElement;
   var body = document.body;
+
+  function $(id) { return document.getElementById(id); }
+  function getNow() { return TimeSync.getNow(); }
+  function nowMs() { return TimeSync.nowMs(); }
 
   var pad = function (n, w) {
     n = String(Math.floor(n));
     while (n.length < (w || 2)) n = "0" + n;
     return n;
   };
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+    });
+  }
+  function hexToRgba(hex, a) {
+    var m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || "#000000");
+    var r = m ? parseInt(m[1], 16) : 0, g = m ? parseInt(m[2], 16) : 0, b = m ? parseInt(m[3], 16) : 0;
+    a = Math.max(0, Math.min(1, a == null ? 1 : a));
+    return "rgba(" + r + "," + g + "," + b + "," + a + ")";
+  }
 
   var DEFAULTS = {
-    format: "HMSms",
-    fps: 30,
-    decimals: 3,
-    hour24: true,
-    showDate: false,
-    color: "#ffffff",
-    size: 12,
-    font: "'Courier New', monospace",
-    weight: 700,
-    letter: 0.02,
-    shadowOn: false,
-    shadowColor: "#000000",
-    shadowSize: 4,
-    bgMode: "transparent",
-    bgColor: "#000000",
+    mode: "clock",
+    // 時計
+    format: "HMSms", fps: 30, decimals: 3, hour24: true, padHour: true,
+    showDate: false, dateFormat: "iso", tz: "auto",
+    // タイマー
+    timerH: 0, timerM: 5, timerS: 0, timerShowMs: false,
+    timerFinishColor: "#ff3366", timerFinishFlash: true, timerFinishLabel: "TIME!", timerBeep: false,
+    // ストップウォッチ
+    swShowMs: true,
+    // イベントカウントダウン
+    target: "", cdTitle: "", cdDone: "", cdDropDays: true,
+    // 見た目
+    color: "#ffffff", size: 12, font: "'Courier New', monospace", weight: 700, letter: 0.02,
+    opacity: 1, blink: false, alignV: "center", alignH: "center",
+    shadowOn: false, shadowColor: "#000000", shadowSize: 4,
+    bgMode: "transparent", bgColor: "#000000",
+    panelOn: false, panelColor: "#000000", panelOpacity: 0.4,
     checker: false
   };
 
   var state = {};
+
+  // ===== ランタイム専用（永続化しない） =====
+  var timerEndAt = 0, timerRemainAtPause = 0, timerRunning = false, timerFinished = false, timerBeeped = false;
+  var swStartAt = 0, swAccum = 0, swRunning = false, swLaps = [];
+  var audioCtx = null;
 
   // ---- 設定の読み込み: URLパラメータ > localStorage > デフォルト ----
   function load() {
@@ -381,10 +714,7 @@
       state[k] = v;
     });
   }
-
-  function save() {
-    try { localStorage.setItem("timecodeSettings", JSON.stringify(state)); } catch (e) {}
-  }
+  function save() { try { localStorage.setItem("timecodeSettings", JSON.stringify(state)); } catch (e) {} }
 
   // ---- スタイル適用 ----
   function applyStyles() {
@@ -393,115 +723,284 @@
     root.style.setProperty("--tc-font", state.font);
     root.style.setProperty("--tc-weight", state.weight);
     root.style.setProperty("--tc-letter", state.letter + "em");
+    root.style.setProperty("--tc-opacity", state.opacity);
 
     if (state.shadowOn) {
       var s = state.shadowSize;
-      // 縁取り風: 影色で四方 + ぼかし
       root.style.setProperty("--tc-shadow",
-        "0 0 " + s + "px " + state.shadowColor + ", " +
-        "0 0 " + Math.max(1, s / 2) + "px " + state.shadowColor);
+        "0 0 " + s + "px " + state.shadowColor + ", 0 0 " + Math.max(1, s / 2) + "px " + state.shadowColor);
     } else {
       root.style.setProperty("--tc-shadow", "0 0 0 rgba(0,0,0,0)");
     }
 
-    if (state.bgMode === "solid") {
-      root.style.setProperty("--tc-bg", state.bgColor);
+    root.style.setProperty("--tc-bg", state.bgMode === "solid" ? state.bgColor : "rgba(0,0,0,0)");
+
+    if (state.panelOn) {
+      root.style.setProperty("--tc-panel-bg", hexToRgba(state.panelColor, state.panelOpacity));
+      root.style.setProperty("--tc-panel-pad", "0.1em 0.35em");
+      root.style.setProperty("--tc-panel-radius", "0.08em");
     } else {
-      root.style.setProperty("--tc-bg", "rgba(0,0,0,0)");
+      root.style.setProperty("--tc-panel-bg", "transparent");
+      root.style.setProperty("--tc-panel-pad", "0");
+      root.style.setProperty("--tc-panel-radius", "0");
     }
 
+    stage.className = "";
+    stage.classList.add("v-" + state.alignV, "h-" + state.alignH);
+
+    body.classList.toggle("blink-on", state.blink);
     body.classList.toggle("show-checker", state.checker && state.bgMode === "transparent");
   }
 
-  // ---- 時計の描画 ----
-  function render() {
-    var now = new Date();
-    var h = now.getHours();
-    var m = now.getMinutes();
-    var sec = now.getSeconds();
-    var ms = now.getMilliseconds();
+  // ---- タイムゾーン / 日付ヘルパ ----
+  var WEEKDAY_IDX = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  var WDAY_JP = ["日", "月", "火", "水", "木", "金", "土"];
+  var MON_EN = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  var WDAY_EN = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 
-    var ampm = "";
-    if (!state.hour24) {
-      ampm = h < 12 ? " AM" : " PM";
-      h = h % 12;
-      if (h === 0) h = 12;
+  function getParts(date, tz) {
+    var ms = date.getMilliseconds();
+    if (!tz || tz === "auto") {
+      return { h: date.getHours(), m: date.getMinutes(), s: date.getSeconds(), ms: ms,
+        year: date.getFullYear(), mon: date.getMonth() + 1, day: date.getDate(), weekday: date.getDay() };
     }
+    try {
+      var fmt = new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour12: false,
+        year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", second: "2-digit", weekday: "short" });
+      var parts = fmt.formatToParts(date), o = {};
+      for (var i = 0; i < parts.length; i++) o[parts[i].type] = parts[i].value;
+      var hh = parseInt(o.hour, 10); if (hh === 24) hh = 0;
+      return { h: hh, m: parseInt(o.minute, 10), s: parseInt(o.second, 10), ms: ms,
+        year: parseInt(o.year, 10), mon: parseInt(o.month, 10), day: parseInt(o.day, 10),
+        weekday: WEEKDAY_IDX[o.weekday] != null ? WEEKDAY_IDX[o.weekday] : 0 };
+    } catch (e) { return getParts(date, "auto"); }
+  }
 
-    var main = "";
-    var sub = "";
+  function formatDate(p) {
+    var jp = WDAY_JP[p.weekday];
+    switch (state.dateFormat) {
+      case "mdslash": return pad(p.mon) + "/" + pad(p.day);
+      case "jp":      return p.mon + "月" + p.day + "日(" + jp + ")";
+      case "jplong":  return p.year + "年" + p.mon + "月" + p.day + "日";
+      case "enshort": return WDAY_EN[p.weekday] + ", " + MON_EN[p.mon - 1] + " " + p.day;
+      default:        return p.year + "-" + pad(p.mon) + "-" + pad(p.day) + " (" + jp + ")";
+    }
+  }
+  function sep() { return '<span class="sep">:</span>'; }
 
+  // 経過/残り時間(ms)を HH:MM:SS(.mmm) に
+  function fmtDuration(totalMs, showMs) {
+    if (totalMs < 0) totalMs = 0;
+    var ms = Math.floor(totalMs % 1000);
+    var totalSec = Math.floor(totalMs / 1000);
+    var s = totalSec % 60, m = Math.floor(totalSec / 60) % 60, h = Math.floor(totalSec / 3600);
+    var out = (h > 0 ? pad(h) + sep() : "") + pad(m) + sep() + pad(s);
+    if (showMs) out += '<span class="ms">.' + pad(ms, 3) + "</span>";
+    return out;
+  }
+
+  // ---- 各モードの描画 ----
+  function renderClock(now) {
+    var p = getParts(now, state.tz);
+    var h = p.h, m = p.m, sec = p.s, ms = p.ms, ampm = "";
+    if (!state.hour24) { ampm = h < 12 ? " AM" : " PM"; h = h % 12; if (h === 0) h = 12; }
+    var hourStr = state.padHour ? pad(h) : String(h);
+
+    var main;
     if (state.format === "HM") {
-      main = pad(h) + ":" + pad(m);
+      main = hourStr + sep() + pad(m);
     } else if (state.format === "HMSms") {
       var digits = state.decimals || 2;
-      var frac = pad(ms, 3).slice(0, digits);
-      main = pad(h) + ":" + pad(m) + ":" + pad(sec) +
-        '<span class="ms">.' + frac + "</span>";
+      main = hourStr + sep() + pad(m) + sep() + pad(sec) + '<span class="ms">.' + pad(ms, 3).slice(0, digits) + "</span>";
     } else if (state.format === "HMSf") {
       var fps = state.fps || 30;
-      var frame = Math.floor(ms / (1000 / fps));
-      main = pad(h) + ":" + pad(m) + ":" + pad(sec) +
-        '<span class="frames">:' + pad(frame) + "</span>";
+      main = hourStr + sep() + pad(m) + sep() + pad(sec) + '<span class="frames">' + sep() + pad(Math.floor(ms / (1000 / fps))) + "</span>";
     } else {
-      main = pad(h) + ":" + pad(m) + ":" + pad(sec);
+      main = hourStr + sep() + pad(m) + sep() + pad(sec);
     }
-
     main += ampm;
 
     var html = "";
-    if (state.showDate) {
-      var days = ["日", "月", "火", "水", "木", "金", "土"];
-      sub = now.getFullYear() + "-" + pad(now.getMonth() + 1) + "-" + pad(now.getDate()) +
-        " (" + days[now.getDay()] + ")";
-      html += '<span class="date">' + sub + "</span>";
+    if (state.showDate) html += '<span class="date">' + formatDate(p) + "</span>";
+    return html + main;
+  }
+
+  function timerConfiguredMs() { return ((state.timerH * 3600) + (state.timerM * 60) + state.timerS) * 1000; }
+  function timerStart() {
+    ensureAudio();
+    if (timerRunning) return;
+    var remain = (timerRemainAtPause > 0 && !timerFinished) ? timerRemainAtPause : timerConfiguredMs();
+    if (remain <= 0) return;
+    timerEndAt = nowMs() + remain; timerRunning = true; timerFinished = false; timerBeeped = false;
+    clock.classList.remove("finished-flash");
+  }
+  function timerPause() { if (!timerRunning) return; timerRemainAtPause = Math.max(0, timerEndAt - nowMs()); timerRunning = false; }
+  function timerReset() {
+    timerRunning = false; timerFinished = false; timerBeeped = false; timerRemainAtPause = 0; timerEndAt = 0;
+    clock.classList.remove("finished-flash"); clock.style.color = "";
+  }
+  function renderTimer() {
+    var remain;
+    if (timerRunning) {
+      remain = timerEndAt - nowMs();
+      if (remain <= 0) { remain = 0; timerRunning = false; timerFinished = true; timerRemainAtPause = 0;
+        if (state.timerBeep && !timerBeeped) { beep(); timerBeeped = true; } }
+    } else if (timerFinished) { remain = 0; }
+    else { remain = timerRemainAtPause > 0 ? timerRemainAtPause : timerConfiguredMs(); }
+
+    clock.classList.toggle("finished-flash", timerFinished && state.timerFinishFlash);
+    clock.style.color = timerFinished ? state.timerFinishColor : "";
+
+    var html = "";
+    if (timerFinished && state.timerFinishLabel) html += '<span class="date">' + escapeHtml(state.timerFinishLabel) + "</span>";
+    return html + fmtDuration(remain, state.timerShowMs);
+  }
+
+  function swElapsed() { return swAccum + (swRunning ? (nowMs() - swStartAt) : 0); }
+  function swStart() { if (swRunning) return; swStartAt = nowMs(); swRunning = true; }
+  function swPause() { if (!swRunning) return; swAccum += nowMs() - swStartAt; swRunning = false; }
+  function swReset() { swRunning = false; swAccum = 0; swStartAt = 0; swLaps = []; renderSwLaps(); }
+  function swLap() { if (!swRunning && swAccum === 0) return; swLaps.push(swElapsed()); renderSwLaps(); }
+  function renderSwLaps() {
+    var cnt = $("swLapCount"); if (cnt) cnt.textContent = swLaps.length;
+    var list = $("swLapList"); if (!list) return;
+    var html = "";
+    for (var i = swLaps.length - 1; i >= 0; i--) {
+      var prev = i > 0 ? swLaps[i - 1] : 0;
+      html += '<div class="lap"><span class="lap-n">#' + (i + 1) + "</span><span>" +
+        fmtDuration(swLaps[i] - prev, true) + "</span><span>" + fmtDuration(swLaps[i], true) + "</span></div>";
     }
-    html += main;
-    clock.innerHTML = html;
+    list.innerHTML = html;
+  }
+  function renderStopwatch() {
+    var html = fmtDuration(swElapsed(), state.swShowMs);
+    if (swLaps.length) html += '<span class="date">LAP ' + swLaps.length + " · " + fmtDuration(swLaps[swLaps.length - 1], true) + "</span>";
+    return html;
   }
 
-  // ---- 高頻度更新ループ ----
-  function tick() {
-    render();
-    requestAnimationFrame(tick);
+  function renderCountdown(now) {
+    var title = state.cdTitle ? '<span class="cd-title">' + escapeHtml(state.cdTitle) + "</span>" : "";
+    if (!state.target) return title + "--" + sep() + "--" + sep() + "--";
+    var targetMs = new Date(state.target).getTime();
+    if (isNaN(targetMs)) return title + "--" + sep() + "--" + sep() + "--";
+    var diff = targetMs - now.getTime();
+    if (diff <= 0) return '<span class="cd-done">' + escapeHtml(state.cdDone || state.cdTitle || "00:00:00") + "</span>";
+    var totalSec = Math.floor(diff / 1000);
+    var days = Math.floor(totalSec / 86400), hrs = Math.floor((totalSec % 86400) / 3600),
+        mins = Math.floor((totalSec % 3600) / 60), secs = totalSec % 60;
+    var body2 = "";
+    if (!(days === 0 && state.cdDropDays)) body2 += '<span class="cd-days">' + days + "</span>" + sep();
+    body2 += pad(hrs) + sep() + pad(mins) + sep() + pad(secs);
+    return title + body2;
   }
 
-  // ---- パネルとコントロールの同期 ----
-  function $(id) { return document.getElementById(id); }
+  // ---- 描画ディスパッチ ----
+  function render() {
+    var now = getNow();
+    if (state.blink) clock.classList.toggle("blink-off", (Math.floor(now.getTime() / 500) % 2) === 1);
+    else if (clock.classList.contains("blink-off")) clock.classList.remove("blink-off");
 
+    if (state.mode === "timer") { clock.innerHTML = renderTimer(); return; }
+
+    // タイマー以外: 終了時の色/点滅が残らないようにクリア
+    if (clock.style.color) clock.style.color = "";
+    if (clock.classList.contains("finished-flash")) clock.classList.remove("finished-flash");
+
+    if (state.mode === "stopwatch") { clock.innerHTML = renderStopwatch(); return; }
+    if (state.mode === "countdown") { clock.innerHTML = renderCountdown(now); return; }
+    clock.innerHTML = renderClock(now);
+  }
+  function tick() { render(); requestAnimationFrame(tick); }
+
+  // ---- 音 ----
+  function ensureAudio() {
+    if (!state.timerBeep) return;
+    try {
+      if (!audioCtx) { var AC = window.AudioContext || window.webkitAudioContext; if (AC) audioCtx = new AC(); }
+      if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
+    } catch (e) {}
+  }
+  function beep() {
+    if (!audioCtx) return;
+    try {
+      var t = audioCtx.currentTime, osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+      osc.type = "sine"; osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.3, t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(t); osc.stop(t + 0.62);
+    } catch (e) {}
+  }
+
+  // ---- モード表示切替 ----
+  function applyModeVisibility() {
+    $("clockFields").style.display = state.mode === "clock" ? "" : "none";
+    $("timerFields").style.display = state.mode === "timer" ? "" : "none";
+    $("swFields").style.display = state.mode === "stopwatch" ? "" : "none";
+    $("cdFields").style.display = state.mode === "countdown" ? "" : "none";
+    if (state.mode === "clock") {
+      $("fpsRow").style.display = state.format === "HMSf" ? "" : "none";
+      $("decimalsField").style.display = state.format === "HMSms" ? "" : "none";
+      $("dateFormatField").style.display = state.showDate ? "" : "none";
+    }
+  }
+
+  // ---- コントロール同期 ----
   function syncControlsFromState() {
+    $("mode").value = state.mode;
     $("format").value = state.format;
     $("fps").value = state.fps;
     $("decimals").value = state.decimals;
     $("hour24").checked = state.hour24;
+    $("padHour").checked = state.padHour;
     $("showDate").checked = state.showDate;
+    $("dateFormat").value = state.dateFormat;
+    $("tz").value = state.tz;
+
+    $("timerH").value = state.timerH; $("timerM").value = state.timerM; $("timerS").value = state.timerS;
+    $("timerShowMs").checked = state.timerShowMs;
+    $("timerFinishFlash").checked = state.timerFinishFlash;
+    $("timerBeep").checked = state.timerBeep;
+    $("timerFinishColor").value = state.timerFinishColor;
+    $("timerFinishLabel").value = state.timerFinishLabel;
+    $("swShowMs").checked = state.swShowMs;
+
+    $("target").value = state.target;
+    $("cdTitle").value = state.cdTitle;
+    $("cdDone").value = state.cdDone;
+    $("cdDropDays").checked = state.cdDropDays;
+
     $("color").value = state.color;
-    $("size").value = state.size;
-    $("sizeVal").textContent = state.size;
+    $("size").value = state.size; $("sizeVal").textContent = state.size;
     $("font").value = state.font;
-    $("weight").value = state.weight;
-    $("weightVal").textContent = state.weight;
-    $("letter").value = state.letter;
-    $("letterVal").textContent = state.letter;
+    $("weight").value = state.weight; $("weightVal").textContent = state.weight;
+    $("letter").value = state.letter; $("letterVal").textContent = state.letter;
+    $("opacity").value = state.opacity; $("opacityVal").textContent = state.opacity;
+    $("blink").checked = state.blink;
+    $("alignV").value = state.alignV; $("alignH").value = state.alignH;
     $("shadowOn").checked = state.shadowOn;
     $("shadowColor").value = state.shadowColor;
-    $("shadowSize").value = state.shadowSize;
-    $("shadowSizeVal").textContent = state.shadowSize;
+    $("shadowSize").value = state.shadowSize; $("shadowSizeVal").textContent = state.shadowSize;
     $("bgMode").value = state.bgMode;
     $("bgColor").value = state.bgColor;
+    $("panelOn").checked = state.panelOn;
+    $("panelColor").value = state.panelColor;
+    $("panelOpacity").value = state.panelOpacity; $("panelOpacityVal").textContent = state.panelOpacity;
     $("checker").checked = state.checker;
 
-    $("fpsRow").style.display = state.format === "HMSf" ? "" : "none";
-    $("decimalsField").style.display = state.format === "HMSms" ? "" : "none";
     $("shadowField").style.display = state.shadowOn ? "" : "none";
     $("bgColorField").style.display = state.bgMode === "solid" ? "" : "none";
+    $("panelBgField").style.display = state.panelOn ? "" : "none";
+    applyModeVisibility();
+    renderSwLaps();
   }
 
   function bind(id, key, opts) {
     opts = opts || {};
     var el = $(id);
-    var evt = opts.event || "input";
-    el.addEventListener(evt, function () {
+    el.addEventListener(opts.event || "input", function () {
       var v;
       if (el.type === "checkbox") v = el.checked;
       else if (typeof DEFAULTS[key] === "number") v = parseFloat(el.value);
@@ -514,6 +1013,7 @@
     });
   }
 
+  bind("mode", "mode", { onChange: function () { timerReset(); applyModeVisibility(); } });
   bind("format", "format", { onChange: function () {
     $("fpsRow").style.display = state.format === "HMSf" ? "" : "none";
     $("decimalsField").style.display = state.format === "HMSms" ? "" : "none";
@@ -521,71 +1021,114 @@
   bind("fps", "fps");
   bind("decimals", "decimals");
   bind("hour24", "hour24");
-  bind("showDate", "showDate");
+  bind("padHour", "padHour");
+  bind("showDate", "showDate", { onChange: function () {
+    $("dateFormatField").style.display = state.showDate ? "" : "none";
+  }});
+  bind("dateFormat", "dateFormat");
+  bind("tz", "tz");
+
+  bind("timerH", "timerH"); bind("timerM", "timerM"); bind("timerS", "timerS");
+  bind("timerShowMs", "timerShowMs");
+  bind("timerFinishFlash", "timerFinishFlash");
+  bind("timerBeep", "timerBeep", { onChange: ensureAudio });
+  bind("timerFinishColor", "timerFinishColor");
+  bind("timerFinishLabel", "timerFinishLabel");
+  bind("swShowMs", "swShowMs");
+
+  bind("target", "target");
+  bind("cdTitle", "cdTitle");
+  bind("cdDone", "cdDone");
+  bind("cdDropDays", "cdDropDays");
+
   bind("color", "color");
   bind("size", "size", { valLabel: "sizeVal" });
   bind("font", "font");
   bind("weight", "weight", { valLabel: "weightVal" });
   bind("letter", "letter", { valLabel: "letterVal" });
-  bind("shadowOn", "shadowOn", { onChange: function () {
-    $("shadowField").style.display = state.shadowOn ? "" : "none";
-  }});
+  bind("opacity", "opacity", { valLabel: "opacityVal" });
+  bind("blink", "blink");
+  bind("alignV", "alignV");
+  bind("alignH", "alignH");
+  bind("shadowOn", "shadowOn", { onChange: function () { $("shadowField").style.display = state.shadowOn ? "" : "none"; } });
   bind("shadowColor", "shadowColor");
   bind("shadowSize", "shadowSize", { valLabel: "shadowSizeVal" });
-  bind("bgMode", "bgMode", { onChange: function () {
-    $("bgColorField").style.display = state.bgMode === "solid" ? "" : "none";
-  }});
+  bind("bgMode", "bgMode", { onChange: function () { $("bgColorField").style.display = state.bgMode === "solid" ? "" : "none"; } });
   bind("bgColor", "bgColor");
+  bind("panelOn", "panelOn", { onChange: function () { $("panelBgField").style.display = state.panelOn ? "" : "none"; } });
+  bind("panelColor", "panelColor");
+  bind("panelOpacity", "panelOpacity", { valLabel: "panelOpacityVal" });
   bind("checker", "checker");
+
+  // ボタン
+  $("timerStart").addEventListener("click", timerStart);
+  $("timerPause").addEventListener("click", timerPause);
+  $("timerReset").addEventListener("click", timerReset);
+  $("swStart").addEventListener("click", swStart);
+  $("swPause").addEventListener("click", swPause);
+  $("swReset").addEventListener("click", swReset);
+  $("swLap").addEventListener("click", swLap);
+  $("resync").addEventListener("click", function () { var b = $("resync"); b.textContent = "同期中…"; TimeSync.sync().then(function () { b.textContent = "今すぐ同期"; }); });
 
   // スウォッチ
   Array.prototype.forEach.call(document.querySelectorAll(".swatch"), function (sw) {
     sw.addEventListener("click", function () {
-      state.color = sw.getAttribute("data-c");
-      $("color").value = state.color;
-      applyStyles();
-      save();
+      state.color = sw.getAttribute("data-c"); $("color").value = state.color; applyStyles(); save();
     });
   });
 
-  // パネル開閉
+  // パネル開閉 + ショートカット
   function togglePanel() { panel.classList.toggle("open"); }
   gear.addEventListener("click", togglePanel);
   document.addEventListener("keydown", function (e) {
-    if (e.key === "s" || e.key === "S") {
-      if (document.activeElement && /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) return;
-      togglePanel();
+    var typing = document.activeElement && /INPUT|SELECT|TEXTAREA|BUTTON/.test(document.activeElement.tagName);
+    if ((e.key === "s" || e.key === "S") && !typing) { togglePanel(); return; }
+    if (e.key === "Escape") { panel.classList.remove("open"); return; }
+    if (typing) return;
+    if (state.mode === "timer") {
+      if (e.key === " ") { e.preventDefault(); timerRunning ? timerPause() : timerStart(); }
+      else if (e.key === "r" || e.key === "R") { timerReset(); }
+    } else if (state.mode === "stopwatch") {
+      if (e.key === " ") { e.preventDefault(); swRunning ? swPause() : swStart(); }
+      else if (e.key === "l" || e.key === "L") { swLap(); }
+      else if (e.key === "r" || e.key === "R") { swReset(); }
     }
-    if (e.key === "Escape") panel.classList.remove("open");
   });
 
   // URLコピー
   $("copyUrl").addEventListener("click", function () {
     var params = new URLSearchParams();
     Object.keys(DEFAULTS).forEach(function (k) {
-      var v = state[k];
-      if (typeof v === "boolean") v = v ? "1" : "0";
+      var v = state[k]; if (typeof v === "boolean") v = v ? "1" : "0";
       params.set(k, v);
     });
     var url = location.origin + location.pathname + "?" + params.toString();
     var btn = $("copyUrl");
-    var done = function () { btn.textContent = "コピーしました ✓"; setTimeout(function(){ btn.textContent = "設定付きURLをコピー"; }, 1500); };
-    if (navigator.clipboard) navigator.clipboard.writeText(url).then(done, function(){ prompt("URL", url); });
+    var done = function () { btn.textContent = "コピーしました ✓"; setTimeout(function () { btn.textContent = "設定付きURLをコピー"; }, 1500); };
+    if (navigator.clipboard) navigator.clipboard.writeText(url).then(done, function () { prompt("URL", url); });
     else prompt("URL", url);
   });
 
   // リセット
   $("reset").addEventListener("click", function () {
     state = JSON.parse(JSON.stringify(DEFAULTS));
-    syncControlsFromState();
-    applyStyles();
-    save();
+    timerReset(); swReset();
+    syncControlsFromState(); applyStyles(); save();
+  });
+
+  // 同期ステータス表示
+  TimeSync.onUpdate(function (st) {
+    var el = $("syncStatus"); if (!el) return;
+    if (!st.synced) { el.textContent = "ローカル時計（同期できませんでした）"; return; }
+    var sign = st.offsetMs >= 0 ? "+" : "";
+    el.textContent = "同期: " + st.source + " / 補正 " + sign + Math.round(st.offsetMs) + "ms (RTT " + Math.round(st.rttMs) + "ms)";
   });
 
   // ---- 起動 ----
   load();
   syncControlsFromState();
   applyStyles();
+  TimeSync.start();
   tick();
 })();
 </script>
