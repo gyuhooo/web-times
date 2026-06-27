@@ -17,6 +17,7 @@
     --tc-shadow: 0 0 0 rgba(0,0,0,0);
     --tc-letter: 0.02em;
     --tc-opacity: 1;
+    --pg-h: 1.2vw;
     --tc-panel-bg: transparent;
     --tc-panel-pad: 0;
     --tc-panel-radius: 0;
@@ -83,6 +84,29 @@
     opacity: 0.75;
     font-size: 0.6em;
     vertical-align: baseline;
+  }
+
+  /* 時計とプログレスバーをまとめる箱（バーは時計幅にそろう） */
+  #group {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.35em;
+  }
+  #progress {
+    display: none;
+    height: var(--pg-h, 1.2vw);
+    background: rgba(255, 255, 255, 0.18);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  #progress.on { display: block; }
+  #progressFill {
+    height: 100%;
+    width: 100%;
+    background: #33aaff;
+    border-radius: 999px;
+    transition: width 0.12s linear;
   }
 
   /* 数字を等幅化: 各桁を 1ch 幅のセルに収め、どのフォントでも桁が動かない */
@@ -259,7 +283,10 @@
 </head>
 <body>
   <div id="stage">
-    <div id="clock">00:00:00</div>
+    <div id="group">
+      <div id="clock">00:00:00</div>
+      <div id="progress"><div id="progressFill"></div></div>
+    </div>
   </div>
 
   <button id="gear" title="メニュー (S キー)">☰</button>
@@ -363,9 +390,25 @@
       <div class="checkbox"><input type="checkbox" id="timerShowMs" /><label for="timerShowMs">ミリ秒を表示</label></div>
       <div class="checkbox"><input type="checkbox" id="timerFinishFlash" checked /><label for="timerFinishFlash">終了時に点滅</label></div>
       <div class="checkbox"><input type="checkbox" id="timerBeep" /><label for="timerBeep">終了時にビープ音（要クリック許可）</label></div>
-      <div class="field"><label>終了色</label><input type="color" id="timerFinishColor" value="#ff3366" /></div>
       <div class="field"><label>終了メッセージ（空欄で非表示）</label><input type="text" id="timerFinishLabel" value="TIME!" /></div>
-      <p class="hint">ショートカット（パネルを閉じた状態）: Space=開始/一時停止, R=リセット</p>
+
+      <div class="row">
+        <div class="field"><label>黄色になる残り秒</label><input type="number" id="timerWarnY" min="0" step="1" value="60" /></div>
+        <div class="field"><label>赤になる残り秒</label><input type="number" id="timerWarnR" min="0" step="1" value="10" /></div>
+      </div>
+      <div class="row">
+        <div class="field"><label>注意色（黄）</label><input type="color" id="timerColorY" value="#ffcc00" /></div>
+        <div class="field"><label>警告/終了色（赤）</label><input type="color" id="timerFinishColor" value="#ff3366" /></div>
+      </div>
+      <div class="checkbox"><input type="checkbox" id="timerOvertime" checked /><label for="timerOvertime">0:00以降も超過時間を「+」でカウント</label></div>
+
+      <div class="checkbox"><input type="checkbox" id="progressBar" checked /><label for="progressBar">プログレスバーを表示</label></div>
+      <div class="row" id="progressOpts">
+        <div class="field"><label>バーの色</label><input type="color" id="progressColor" value="#33aaff" /></div>
+        <div class="field"><label>バーの太さ <span class="val" id="progressThickVal">1.2</span></label><input type="range" id="progressThick" min="0.2" max="5" step="0.1" value="1.2" /></div>
+      </div>
+
+      <p class="hint">残り時間で色が緑→黄→赤に変化。ショートカット（パネルを閉じた状態）: Space=開始/一時停止, R=リセット</p>
     </div>
 
     <!-- ===== ストップウォッチ ===== -->
@@ -698,6 +741,8 @@ var TimeSync = (function () {
     // タイマー
     timerH: 0, timerM: 5, timerS: 0, timerShowMs: false,
     timerFinishColor: "#ff3366", timerFinishFlash: true, timerFinishLabel: "TIME!", timerBeep: false,
+    timerWarnY: 60, timerWarnR: 10, timerColorY: "#ffcc00", timerOvertime: true,
+    progressBar: true, progressColor: "#33aaff", progressThick: 1.2,
     // ストップウォッチ
     swShowMs: true,
     // イベントカウントダウン
@@ -745,6 +790,7 @@ var TimeSync = (function () {
     root.style.setProperty("--tc-weight", state.weight);
     root.style.setProperty("--tc-letter", state.letter + "em");
     root.style.setProperty("--tc-opacity", state.opacity);
+    root.style.setProperty("--pg-h", state.progressThick + "vw");
 
     if (state.shadowOn) {
       var s = state.shadowSize;
@@ -860,22 +906,52 @@ var TimeSync = (function () {
   function timerReset() {
     timerRunning = false; timerFinished = false; timerBeeped = false; timerRemainAtPause = 0; timerEndAt = 0;
     clock.classList.remove("finished-flash"); clock.style.color = "";
+    setProgress(false);
+  }
+  // プログレスバーの表示/幅/色を更新
+  function setProgress(show, frac, color) {
+    var pg = $("progress"), fill = $("progressFill");
+    if (!pg) return;
+    var on = !!show && state.progressBar;
+    pg.classList.toggle("on", on);
+    if (on) {
+      fill.style.width = (Math.max(0, Math.min(1, frac)) * 100) + "%";
+      fill.style.background = color || state.progressColor;
+    }
   }
   function renderTimer() {
-    var remain;
+    var configured = timerConfiguredMs();
+    var remain, over = 0;
     if (timerRunning) {
       remain = timerEndAt - nowMs();
-      if (remain <= 0) { remain = 0; timerRunning = false; timerFinished = true; timerRemainAtPause = 0;
-        if (state.timerBeep && !timerBeeped) { beep(); timerBeeped = true; } }
+      if (remain <= 0) {
+        if (state.timerBeep && !timerBeeped) { beep(); timerBeeped = true; }
+        timerFinished = true;
+        if (state.timerOvertime) { over = -remain; remain = 0; }       // 超過: 数え続ける
+        else { remain = 0; timerRunning = false; timerRemainAtPause = 0; } // 0で停止
+      }
     } else if (timerFinished) { remain = 0; }
-    else { remain = timerRemainAtPause > 0 ? timerRemainAtPause : timerConfiguredMs(); }
+    else { remain = timerRemainAtPause > 0 ? timerRemainAtPause : configured; }
 
+    // 段階的な色: 残り時間で 通常→黄→赤（超過/終了は赤）。開始前は通常色。
+    var started = timerRunning || timerFinished;
+    var col = "";
+    if (started) {
+      if (over > 0 || timerFinished) col = state.timerFinishColor;
+      else if (remain <= state.timerWarnR * 1000) col = state.timerFinishColor;
+      else if (remain <= state.timerWarnY * 1000) col = state.timerColorY;
+    }
+    clock.style.color = col;
     clock.classList.toggle("finished-flash", timerFinished && state.timerFinishFlash);
-    clock.style.color = timerFinished ? state.timerFinishColor : "";
+
+    // プログレスバー: 残り割合（未開始は満タン、超過は空）
+    var frac = !started ? 1 : (configured > 0 ? remain / configured : 0);
+    setProgress(true, frac, col || state.progressColor);
 
     var html = "";
     if (timerFinished && state.timerFinishLabel) html += '<span class="date">' + escapeHtml(state.timerFinishLabel) + "</span>";
-    return html + fmtDuration(remain, state.timerShowMs);
+    html += (over > 0 ? "+" : "") + fmtDuration(over > 0 ? over : remain, state.timerShowMs);
+    return html;
   }
 
   function swElapsed() { return swAccum + (swRunning ? (nowMs() - swStartAt) : 0); }
@@ -926,9 +1002,10 @@ var TimeSync = (function () {
     if (state.mode === "timer") {
       html = renderTimer();
     } else {
-      // タイマー以外: 終了時の色/点滅が残らないようにクリア
+      // タイマー以外: 終了時の色/点滅/バーが残らないようにクリア
       if (clock.style.color) clock.style.color = "";
       if (clock.classList.contains("finished-flash")) clock.classList.remove("finished-flash");
+      setProgress(false);
       if (state.mode === "stopwatch") html = renderStopwatch();
       else if (state.mode === "countdown") html = renderCountdown(now);
       else html = renderClock(now);
@@ -997,6 +1074,12 @@ var TimeSync = (function () {
     $("timerBeep").checked = state.timerBeep;
     $("timerFinishColor").value = state.timerFinishColor;
     $("timerFinishLabel").value = state.timerFinishLabel;
+    $("timerWarnY").value = state.timerWarnY; $("timerWarnR").value = state.timerWarnR;
+    $("timerColorY").value = state.timerColorY;
+    $("timerOvertime").checked = state.timerOvertime;
+    $("progressBar").checked = state.progressBar;
+    $("progressColor").value = state.progressColor;
+    $("progressThick").value = state.progressThick; $("progressThickVal").textContent = state.progressThick;
     $("swShowMs").checked = state.swShowMs;
 
     $("target").value = state.target;
@@ -1066,6 +1149,13 @@ var TimeSync = (function () {
   bind("timerBeep", "timerBeep", { onChange: ensureAudio });
   bind("timerFinishColor", "timerFinishColor");
   bind("timerFinishLabel", "timerFinishLabel");
+  bind("timerWarnY", "timerWarnY");
+  bind("timerWarnR", "timerWarnR");
+  bind("timerColorY", "timerColorY");
+  bind("timerOvertime", "timerOvertime");
+  bind("progressBar", "progressBar");
+  bind("progressColor", "progressColor");
+  bind("progressThick", "progressThick", { valLabel: "progressThickVal" });
   bind("swShowMs", "swShowMs");
 
   bind("target", "target");
