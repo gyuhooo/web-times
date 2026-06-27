@@ -419,14 +419,14 @@
     <div class="field">
       <label>フォント</label>
       <select id="font">
-        <optgroup label="Webフォント（太さ100〜900が効く）">
-          <option value="'Roboto Mono', monospace">Roboto Mono（等幅・可変）</option>
-          <option value="'JetBrains Mono', monospace">JetBrains Mono（等幅・可変）</option>
-          <option value="'IBM Plex Mono', monospace">IBM Plex Mono（等幅・可変）</option>
-          <option value="'Inter', sans-serif">Inter（サンセリフ・可変）</option>
-          <option value="'Oswald', sans-serif">Oswald（細長・Impact風・可変）</option>
+        <optgroup label="Webフォント">
+          <option value="'Roboto Mono', monospace">Roboto Mono（等幅）</option>
+          <option value="'JetBrains Mono', monospace">JetBrains Mono（等幅）</option>
+          <option value="'IBM Plex Mono', monospace">IBM Plex Mono（等幅）</option>
+          <option value="'Inter', sans-serif">Inter</option>
+          <option value="'Oswald', sans-serif">Oswald（細長）</option>
         </optgroup>
-        <optgroup label="システムフォント（太さは通常2段階）">
+        <optgroup label="システムフォント">
           <option value="'Courier New', monospace">Courier (等幅)</option>
           <option value="'Consolas', monospace">Consolas</option>
           <option value="'SF Mono', ui-monospace, monospace">SF Mono</option>
@@ -446,7 +446,7 @@
     <div class="field">
       <label>太さ <span class="val" id="weightVal">700</span></label>
       <input type="range" id="weight" min="100" max="900" step="100" value="700" />
-      <p class="hint" style="margin:6px 0 0;">システムフォント（Courier/Georgia/Impact等）はRegular/Boldのみ。100〜900を細かく反映するには上の「Webフォント」を選んでください。</p>
+      <p class="hint" style="margin:6px 0 0;">太さを細かく変えたいときはWebフォントがおすすめ（システムフォントは標準/太字のみのことが多いです）</p>
     </div>
 
     <div class="field">
