@@ -265,7 +265,7 @@
     <div id="clock">00:00:00</div>
   </div>
 
-  <button id="gear" title="設定 (S キー)">⚙</button>
+  <button id="gear" title="メニュー (S キー)">☰</button>
 
   <div id="panel">
     <h1>時計 / タイムコード</h1>
@@ -492,8 +492,8 @@
         <option value="solid">単色</option>
       </select>
     </div>
-    <div class="field" id="bgColorField" style="display:none;">
-      <label>背景色</label>
+    <div class="field" id="bgColorField">
+      <label>全体の背景色</label>
       <input type="color" id="bgColor" value="#000000" />
     </div>
 
@@ -1027,7 +1027,6 @@ var TimeSync = (function () {
     $("checker").checked = state.checker;
 
     $("shadowField").style.display = state.shadowOn ? "" : "none";
-    $("bgColorField").style.display = state.bgMode === "solid" ? "" : "none";
     $("panelBgField").style.display = state.panelOn ? "" : "none";
     applyModeVisibility();
     renderSwLaps();
@@ -1090,8 +1089,11 @@ var TimeSync = (function () {
   bind("shadowOn", "shadowOn", { onChange: function () { $("shadowField").style.display = state.shadowOn ? "" : "none"; } });
   bind("shadowColor", "shadowColor");
   bind("shadowSize", "shadowSize", { valLabel: "shadowSizeVal" });
-  bind("bgMode", "bgMode", { onChange: function () { $("bgColorField").style.display = state.bgMode === "solid" ? "" : "none"; } });
-  bind("bgColor", "bgColor");
+  bind("bgMode", "bgMode");
+  // 背景色を選んだら自動的に「単色」に切り替えて即反映（透過にはプルダウンで戻せる）
+  bind("bgColor", "bgColor", { onChange: function () {
+    if (state.bgMode !== "solid") { state.bgMode = "solid"; $("bgMode").value = "solid"; }
+  }});
   bind("panelOn", "panelOn", { onChange: function () { $("panelBgField").style.display = state.panelOn ? "" : "none"; } });
   bind("panelColor", "panelColor");
   bind("panelOpacity", "panelOpacity", { valLabel: "panelOpacityVal" });
