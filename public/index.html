@@ -133,6 +133,60 @@
   #clock.finished-flash { animation: tc-flash 0.7s steps(1) infinite; }
   @keyframes tc-flash { 50% { opacity: 0.12; } }
 
+  /* ---------- エフェクト ---------- */
+  #clock.fx-glow, #clock.fx-neon {
+    text-shadow:
+      0 0 0.08em var(--fx-color, #00e5ff),
+      0 0 0.2em  var(--fx-color, #00e5ff),
+      0 0 0.45em var(--fx-color, #00e5ff);
+  }
+  #clock.fx-neon { animation: fx-flicker var(--fx-speed, 2s) infinite; }
+  @keyframes fx-flicker {
+    0%, 18%, 22%, 25%, 53%, 57%, 100% { opacity: var(--tc-opacity, 1); }
+    20%, 24%, 55% { opacity: calc(var(--tc-opacity, 1) * 0.4); }
+  }
+
+  #clock.fx-pulse { animation: fx-pulse var(--fx-speed, 2s) ease-in-out infinite; }
+  @keyframes fx-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+
+  #clock.fx-rainbow { animation: fx-rainbow var(--fx-speed, 6s) linear infinite; }
+  @keyframes fx-rainbow { from { filter: hue-rotate(0deg); } to { filter: hue-rotate(360deg); } }
+
+  #clock.fx-shake { animation: fx-shake var(--fx-speed, 0.5s) infinite; }
+  @keyframes fx-shake {
+    0%, 100% { transform: translate(0, 0); }
+    25% { transform: translate(-0.02em, 0.02em); }
+    50% { transform: translate(0.02em, -0.02em); }
+    75% { transform: translate(0.02em, 0.02em); }
+  }
+
+  #clock.fx-glitch { animation: fx-glitch var(--fx-speed, 1.2s) steps(2) infinite; }
+  @keyframes fx-glitch {
+    0%, 100% { text-shadow: 0.03em 0 0 rgba(255, 0, 80, 0.85), -0.03em 0 0 rgba(0, 230, 255, 0.85); }
+    50%      { text-shadow: -0.03em 0 0 rgba(255, 0, 80, 0.85), 0.03em 0 0 rgba(0, 230, 255, 0.85); }
+  }
+
+  /* グラデーション: 桁セル(.d)や小数(.ms)にも適用されるよう子要素ごとにクリップ */
+  #clock.fx-gradient,
+  #clock.fx-gradient .d,
+  #clock.fx-gradient .sep,
+  #clock.fx-gradient .ms,
+  #clock.fx-gradient .frames,
+  #clock.fx-gradient .date,
+  #clock.fx-gradient .cd-title {
+    background-image: linear-gradient(180deg, var(--tc-color), var(--fx-color, #00e5ff));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+
+  /* アウトライン(中空): 文字色で縁取り、塗りは透明（継承される） */
+  #clock.fx-outline {
+    -webkit-text-fill-color: transparent;
+    -webkit-text-stroke: 0.022em var(--tc-color);
+  }
+
   /* ---------- 設定パネル ---------- */
   #panel {
     position: fixed;
@@ -515,6 +569,25 @@
       <label for="blink">「:」を1秒ごとに点滅</label>
     </div>
 
+    <div class="field">
+      <label>エフェクト</label>
+      <select id="effect">
+        <option value="none">なし</option>
+        <option value="glow">グロー（発光）</option>
+        <option value="neon">ネオン（明滅発光）</option>
+        <option value="gradient">グラデーション</option>
+        <option value="outline">アウトライン（中空）</option>
+        <option value="pulse">パルス（拡大縮小）</option>
+        <option value="rainbow">レインボー（色相回転）</option>
+        <option value="glitch">グリッチ</option>
+        <option value="shake">シェイク（振動）</option>
+      </select>
+    </div>
+    <div class="row" id="effectOpts">
+      <div class="field"><label>エフェクト色</label><input type="color" id="effectColor" value="#00e5ff" /></div>
+      <div class="field"><label>速さ（小さいほど速い） <span class="val" id="effectSpeedVal">2</span></label><input type="range" id="effectSpeed" min="0.2" max="8" step="0.1" value="2" /></div>
+    </div>
+
     <div class="row">
       <div class="field">
         <label>縦位置</label>
@@ -762,6 +835,7 @@ var TimeSync = (function () {
     // 見た目
     color: "#ffffff", size: 12, font: "'Roboto Mono', monospace", weight: 700, letter: 0.02, monoDigits: true, subAlign: "baseline",
     opacity: 1, blink: false, alignV: "center", alignH: "center",
+    effect: "none", effectColor: "#00e5ff", effectSpeed: 2,
     shadowOn: false, shadowColor: "#000000", shadowSize: 4,
     bgMode: "transparent", bgColor: "#000000",
     panelOn: false, panelColor: "#000000", panelOpacity: 0.4,
@@ -804,6 +878,13 @@ var TimeSync = (function () {
     root.style.setProperty("--tc-opacity", state.opacity);
     root.style.setProperty("--pg-h", state.progressThick + "vw");
     root.style.setProperty("--sub-va", state.subAlign);
+
+    // エフェクト: fx-* クラスを付け替え
+    root.style.setProperty("--fx-color", state.effectColor);
+    root.style.setProperty("--fx-speed", state.effectSpeed + "s");
+    var FX = ["fx-glow", "fx-neon", "fx-gradient", "fx-outline", "fx-pulse", "fx-rainbow", "fx-glitch", "fx-shake"];
+    for (var fi = 0; fi < FX.length; fi++) clock.classList.remove(FX[fi]);
+    if (state.effect && state.effect !== "none") clock.classList.add("fx-" + state.effect);
 
     if (state.shadowOn) {
       var s = state.shadowSize;
@@ -1109,6 +1190,9 @@ var TimeSync = (function () {
     $("subAlign").value = state.subAlign;
     $("opacity").value = state.opacity; $("opacityVal").textContent = state.opacity;
     $("blink").checked = state.blink;
+    $("effect").value = state.effect;
+    $("effectColor").value = state.effectColor;
+    $("effectSpeed").value = state.effectSpeed; $("effectSpeedVal").textContent = state.effectSpeed;
     $("alignV").value = state.alignV; $("alignH").value = state.alignH;
     $("shadowOn").checked = state.shadowOn;
     $("shadowColor").value = state.shadowColor;
@@ -1186,6 +1270,9 @@ var TimeSync = (function () {
   bind("subAlign", "subAlign");
   bind("opacity", "opacity", { valLabel: "opacityVal" });
   bind("blink", "blink");
+  bind("effect", "effect");
+  bind("effectColor", "effectColor");
+  bind("effectSpeed", "effectSpeed", { valLabel: "effectSpeedVal" });
   bind("alignV", "alignV");
   bind("alignH", "alignH");
   bind("shadowOn", "shadowOn", { onChange: function () { $("shadowField").style.display = state.shadowOn ? "" : "none"; } });
