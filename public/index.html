@@ -82,8 +82,8 @@
   #clock .frames,
   #clock .ms {
     opacity: 0.75;
-    font-size: 0.6em;
-    vertical-align: baseline;
+    font-size: var(--sub-size, 0.6em);
+    vertical-align: var(--sub-va, baseline);
   }
 
   /* 時計とプログレスバーをまとめる箱（バーは時計幅にそろう） */
@@ -494,6 +494,18 @@
     </div>
 
     <div class="field">
+      <label>小数・フレームの位置</label>
+      <select id="subAlign">
+        <option value="baseline">通常（ベースライン）</option>
+        <option value="super">上付き</option>
+        <option value="sub">下付き</option>
+        <option value="text-top">右上（上端そろえ）</option>
+        <option value="text-bottom">右下（下端そろえ）</option>
+        <option value="middle">中央そろえ</option>
+      </select>
+    </div>
+
+    <div class="field">
       <label>文字の透明度 <span class="val" id="opacityVal">1</span></label>
       <input type="range" id="opacity" min="0.1" max="1" step="0.05" value="1" />
     </div>
@@ -748,7 +760,7 @@ var TimeSync = (function () {
     // イベントカウントダウン
     target: "", cdTitle: "", cdDone: "", cdDropDays: true,
     // 見た目
-    color: "#ffffff", size: 12, font: "'Roboto Mono', monospace", weight: 700, letter: 0.02, monoDigits: true,
+    color: "#ffffff", size: 12, font: "'Roboto Mono', monospace", weight: 700, letter: 0.02, monoDigits: true, subAlign: "baseline",
     opacity: 1, blink: false, alignV: "center", alignH: "center",
     shadowOn: false, shadowColor: "#000000", shadowSize: 4,
     bgMode: "transparent", bgColor: "#000000",
@@ -791,6 +803,7 @@ var TimeSync = (function () {
     root.style.setProperty("--tc-letter", state.letter + "em");
     root.style.setProperty("--tc-opacity", state.opacity);
     root.style.setProperty("--pg-h", state.progressThick + "vw");
+    root.style.setProperty("--sub-va", state.subAlign);
 
     if (state.shadowOn) {
       var s = state.shadowSize;
@@ -1093,6 +1106,7 @@ var TimeSync = (function () {
     $("monoDigits").checked = state.monoDigits;
     $("weight").value = state.weight; $("weightVal").textContent = state.weight;
     $("letter").value = state.letter; $("letterVal").textContent = state.letter;
+    $("subAlign").value = state.subAlign;
     $("opacity").value = state.opacity; $("opacityVal").textContent = state.opacity;
     $("blink").checked = state.blink;
     $("alignV").value = state.alignV; $("alignH").value = state.alignH;
@@ -1169,6 +1183,7 @@ var TimeSync = (function () {
   bind("monoDigits", "monoDigits");
   bind("weight", "weight", { valLabel: "weightVal" });
   bind("letter", "letter", { valLabel: "letterVal" });
+  bind("subAlign", "subAlign");
   bind("opacity", "opacity", { valLabel: "opacityVal" });
   bind("blink", "blink");
   bind("alignV", "alignV");
