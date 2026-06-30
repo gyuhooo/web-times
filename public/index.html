@@ -125,6 +125,16 @@
     letter-spacing: 0.05em;
   }
 
+  /* 併記タイムゾーン行 */
+  #clock .tzextra {
+    display: block;
+    font-size: 0.26em;
+    opacity: 0.8;
+    margin-top: 0.12em;
+    letter-spacing: 0.04em;
+  }
+  #clock .tzextra .tzname { opacity: 0.7; margin-right: 0.5em; }
+
   /* コロン点滅: 有効時のみ、毎秒トグルされる .blink-off で : を消す */
   #clock .sep { transition: opacity 0.06s linear; }
   body.blink-on #clock.blink-off .sep { opacity: 0; }
@@ -259,6 +269,8 @@
     cursor: pointer;
   }
   .field input[type="range"] { width: 100%; }
+  .field select[multiple] { padding: 4px; }
+  .field select[multiple] option { padding: 3px 4px; }
 
   .row { display: flex; gap: 10px; }
   .row > .field { flex: 1; }
@@ -403,6 +415,25 @@
           <option value="America/Los_Angeles">LA (America/Los_Angeles)</option>
           <option value="Australia/Sydney">シドニー (Australia/Sydney)</option>
         </select>
+      </div>
+
+      <div class="field">
+        <label>他の地域も併記（複数選択可）</label>
+        <select id="extraTz" multiple size="6">
+          <option value="UTC">UTC</option>
+          <option value="Asia/Tokyo">東京</option>
+          <option value="Asia/Seoul">ソウル</option>
+          <option value="Asia/Shanghai">上海</option>
+          <option value="Asia/Kolkata">インド</option>
+          <option value="Asia/Dubai">ドバイ</option>
+          <option value="Europe/London">ロンドン</option>
+          <option value="Europe/Paris">パリ</option>
+          <option value="America/New_York">NY</option>
+          <option value="America/Chicago">シカゴ</option>
+          <option value="America/Los_Angeles">LA</option>
+          <option value="Australia/Sydney">シドニー</option>
+        </select>
+        <p class="hint" style="margin:6px 0 0;">時計の下に小さく併記します（Ctrl/⌘+クリックで複数選択）</p>
       </div>
 
       <div class="checkbox">
@@ -641,6 +672,25 @@
     <hr />
 
     <div class="field">
+      <label>プリセット</label>
+      <select id="presetList"><option value="">（保存済みプリセット）</option></select>
+      <div class="btn-row">
+        <button class="action" id="presetApply">適用</button>
+        <button class="action" id="presetDelete">削除</button>
+      </div>
+      <input type="text" id="presetName" placeholder="新しい名前で保存…" />
+      <div class="btn-row">
+        <button class="action" id="presetSave">現在の設定を保存</button>
+      </div>
+      <div class="btn-row">
+        <button class="action" id="presetExport">書き出し</button>
+        <button class="action" id="presetImport">読み込み</button>
+      </div>
+    </div>
+
+    <hr />
+
+    <div class="field">
       <label>時刻同期</label>
       <p class="hint" id="syncStatus">同期中…</p>
       <button class="action" id="resync">今すぐ同期</button>
@@ -822,7 +872,7 @@ var TimeSync = (function () {
     mode: "clock",
     // 時計
     format: "HMSms", fps: 30, decimals: 3, hour24: true, padHour: true,
-    showDate: false, dateFormat: "iso", tz: "auto",
+    showDate: false, dateFormat: "iso", tz: "auto", extraTz: "",
     // タイマー
     timerH: 0, timerM: 5, timerS: 0, timerShowMs: false,
     timerFinishColor: "#ff3366", timerFinishFlash: true, timerFinishLabel: "TIME!", timerBeep: false,
@@ -950,6 +1000,33 @@ var TimeSync = (function () {
   }
   function sep() { return '<span class="sep">:</span>'; }
 
+  // 併記タイムゾーンの短いラベル
+  var TZ_LABELS = {
+    "UTC": "UTC", "Asia/Tokyo": "東京", "Asia/Seoul": "ソウル", "Asia/Shanghai": "上海",
+    "Asia/Kolkata": "インド", "Asia/Dubai": "ドバイ", "Europe/London": "ロンドン",
+    "Europe/Paris": "パリ", "America/New_York": "NY", "America/Chicago": "シカゴ",
+    "America/Los_Angeles": "LA", "Australia/Sydney": "シドニー"
+  };
+  function tzLabel(tz) { return TZ_LABELS[tz] || tz.split("/").pop().replace(/_/g, " "); }
+  function extraTzList() {
+    return (state.extraTz || "").split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+  }
+  // 併記タイムゾーン1行ぶんのHTML（時計の下に小さく）
+  function tzExtraRows(now) {
+    var list = extraTzList();
+    if (!list.length) return "";
+    var html = "";
+    for (var i = 0; i < list.length; i++) {
+      var p = getParts(now, list[i]);
+      var h = p.h, ap = "";
+      if (!state.hour24) { ap = h < 12 ? " AM" : " PM"; h = h % 12; if (h === 0) h = 12; }
+      var hs = state.padHour ? pad(h) : String(h);
+      html += '<span class="tzextra"><span class="tzname">' + escapeHtml(tzLabel(list[i])) + "</span>" +
+        hs + sep() + pad(p.m) + sep() + pad(p.s) + ap + "</span>";
+    }
+    return html;
+  }
+
   // 経過/残り時間(ms)を HH:MM:SS(.mmm) に
   function fmtDuration(totalMs, showMs) {
     if (totalMs < 0) totalMs = 0;
@@ -984,7 +1061,7 @@ var TimeSync = (function () {
 
     var html = "";
     if (state.showDate) html += '<span class="date">' + formatDate(p) + "</span>";
-    return html + main;
+    return html + main + tzExtraRows(now);
   }
 
   function timerConfiguredMs() { return ((state.timerH * 3600) + (state.timerM * 60) + state.timerS) * 1000; }
@@ -1161,6 +1238,10 @@ var TimeSync = (function () {
     $("showDate").checked = state.showDate;
     $("dateFormat").value = state.dateFormat;
     $("tz").value = state.tz;
+    (function () {
+      var sel = extraTzList(), opts = $("extraTz").options;
+      for (var i = 0; i < opts.length; i++) opts[i].selected = sel.indexOf(opts[i].value) >= 0;
+    })();
 
     $("timerH").value = state.timerH; $("timerM").value = state.timerM; $("timerS").value = state.timerS;
     $("timerShowMs").checked = state.timerShowMs;
@@ -1227,6 +1308,13 @@ var TimeSync = (function () {
   }
 
   bind("mode", "mode", { onChange: function () { timerReset(); applyModeVisibility(); } });
+  // 併記タイムゾーン（複数選択）は選択肢を集めて文字列化
+  $("extraTz").addEventListener("change", function () {
+    var picked = [], opts = $("extraTz").options;
+    for (var i = 0; i < opts.length; i++) if (opts[i].selected) picked.push(opts[i].value);
+    state.extraTz = picked.join(",");
+    save();
+  });
   bind("format", "format", { onChange: function () {
     $("fpsRow").style.display = state.format === "HMSf" ? "" : "none";
     $("decimalsField").style.display = state.format === "HMSms" ? "" : "none";
@@ -1344,6 +1432,64 @@ var TimeSync = (function () {
     syncControlsFromState(); applyStyles(); save();
   });
 
+  // ---- プリセット ----
+  function loadPresets() {
+    try { return JSON.parse(localStorage.getItem("timecodePresets") || "{}") || {}; } catch (e) { return {}; }
+  }
+  function storePresets(p) { try { localStorage.setItem("timecodePresets", JSON.stringify(p)); } catch (e) {} }
+  function refreshPresetList(selectName) {
+    var p = loadPresets(), sel = $("presetList");
+    var names = Object.keys(p).sort();
+    sel.innerHTML = '<option value="">（保存済みプリセット）</option>';
+    names.forEach(function (n) {
+      var o = document.createElement("option"); o.value = n; o.textContent = n; sel.appendChild(o);
+    });
+    if (selectName && p[selectName]) sel.value = selectName;
+  }
+  function snapshotState() {
+    var snap = {};
+    Object.keys(DEFAULTS).forEach(function (k) { snap[k] = state[k]; });
+    return snap;
+  }
+  function applyPresetObj(src) {
+    Object.keys(DEFAULTS).forEach(function (k) { state[k] = (k in src) ? src[k] : DEFAULTS[k]; });
+    timerReset(); swReset();
+    syncControlsFromState(); applyStyles(); save();
+  }
+  $("presetSave").addEventListener("click", function () {
+    var name = ($("presetName").value || $("presetList").value || "").trim();
+    if (!name) { name = prompt("プリセット名を入力"); if (!name) return; name = name.trim(); if (!name) return; }
+    var p = loadPresets(); p[name] = snapshotState(); storePresets(p);
+    $("presetName").value = ""; refreshPresetList(name);
+    var b = $("presetSave"); b.textContent = "保存しました ✓"; setTimeout(function () { b.textContent = "現在の設定を保存"; }, 1500);
+  });
+  $("presetApply").addEventListener("click", function () {
+    var name = $("presetList").value; if (!name) return;
+    var p = loadPresets(); if (p[name]) applyPresetObj(p[name]);
+  });
+  $("presetDelete").addEventListener("click", function () {
+    var name = $("presetList").value; if (!name) return;
+    var p = loadPresets(); delete p[name]; storePresets(p); refreshPresetList();
+  });
+  $("presetExport").addEventListener("click", function () {
+    var json = JSON.stringify(loadPresets(), null, 2);
+    if (navigator.clipboard) navigator.clipboard.writeText(json).then(function () {
+      var b = $("presetExport"); b.textContent = "コピー ✓"; setTimeout(function () { b.textContent = "書き出し"; }, 1500);
+    }, function () { prompt("プリセット(JSON)をコピー", json); });
+    else prompt("プリセット(JSON)をコピー", json);
+  });
+  $("presetImport").addEventListener("click", function () {
+    var txt = prompt("プリセット(JSON)を貼り付け（既存に統合）"); if (!txt) return;
+    try {
+      var incoming = JSON.parse(txt);
+      if (incoming && typeof incoming === "object") {
+        var p = loadPresets();
+        Object.keys(incoming).forEach(function (k) { p[k] = incoming[k]; });
+        storePresets(p); refreshPresetList();
+      }
+    } catch (e) { alert("JSONの読み込みに失敗しました"); }
+  });
+
   // 同期ステータス表示
   TimeSync.onUpdate(function (st) {
     var el = $("syncStatus"); if (!el) return;
@@ -1355,6 +1501,7 @@ var TimeSync = (function () {
   // ---- 起動 ----
   load();
   syncControlsFromState();
+  refreshPresetList();
   applyStyles();
   TimeSync.start();
   tick();
